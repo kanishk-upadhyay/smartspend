@@ -1,0 +1,281 @@
+@import "./design-tokens.css";
+
+@import "tailwindcss";
+
+/* =====================================================
+   Global base — Editorial Sanctuary
+   ===================================================== */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html, body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  body {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Display family on real headings; visual hierarchy is opt-in via classes. */
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+
+  /* Strip native number-spinner UI — they read as junk on warm paper. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-magenta-veil);
+    color: var(--color-deep-graphite);
+  }
+}
+
+/* =====================================================
+   Editorial display utilities
+   ===================================================== */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+.font-mono    { font-family: var(--font-mono); }
+
+.display-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.headline {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.title-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.micro-label {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-mid-ash);
+}
+
+.label {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* =====================================================
+   Sharp editorial CTA — never rounded, never shadowed at rest
+   ===================================================== */
+@layer components {
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background-color: var(--color-deep-graphite);
+  color: var(--color-crisp-paper-white);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color var(--duration-color) var(--ease-out),
+              transform var(--duration-color) var(--ease-out);
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-accent);
+  transform: translateY(-2px);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 10px 20px;
+  background-color: transparent;
+  color: var(--color-deep-graphite);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-paper-mist);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--duration-color) var(--ease-out),
+              border-color var(--duration-color) var(--ease-out);
+}
+.btn-quiet:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.btn-quiet[aria-pressed="true"],
+.btn-quiet.is-active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background-color: oklch(55% 0.20 25);
+  color: var(--color-crisp-paper-white);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color var(--duration-color) var(--ease-out),
+              transform var(--duration-color) var(--ease-out);
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: oklch(45% 0.22 25);
+  transform: translateY(-2px);
+}
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 4px 0;
+  background: transparent;
+  border: none;
+  color: var(--color-mid-ash);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: color var(--duration-color) var(--ease-out);
+}
+.btn-text:hover { color: var(--color-accent); }
+.btn-text--accent { color: var(--color-accent); }
+.btn-text--accent:hover { color: var(--color-editorial-magenta-deep); }
+
+.btn--sm {
+  padding: 8px 18px;
+  font-size: 0.8125rem;
+}
+
+.checkbox-editorial {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-paper-mist);
+  border-radius: var(--radius-sm);
+  background: var(--color-crisp-paper-white);
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+  transition: border-color var(--duration-color) var(--ease-out),
+              background-color var(--duration-color) var(--ease-out);
+}
+.checkbox-editorial:hover { border-color: var(--color-accent); }
+.checkbox-editorial:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.checkbox-editorial:checked::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background-color: var(--color-crisp-paper-white);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+/* =====================================================
+   Editorial input
+   ===================================================== */
+.input-editorial {
+  width: 100%;
+  background-color: transparent;
+  color: var(--color-deep-graphite);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  border: 1px solid var(--color-paper-mist);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  transition: border-color var(--duration-color) var(--ease-out),
+              box-shadow var(--duration-color) var(--ease-out);
+}
+.input-editorial:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-dim);
+}
+}
+
+/* =====================================================
+   Editorial scrollbar — hairline neutral
+   ===================================================== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-paper-mist);
+  border-radius: 9999px;
+}
+
+/* =====================================================
+   Reduced-motion override — collapse non-essential transitions
+   ===================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

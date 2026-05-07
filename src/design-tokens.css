@@ -1,0 +1,64 @@
+/* Design tokens — Impeccable "Editorial Sanctuary".
+   Warm-paper light palette, single Editorial Magenta accent,
+   stately italic serif display + clean neutral sans body.
+   Colors are OKLCH; legacy hex banned outside fenced category tints. */
+
+:root {
+  /* ── Warm-paper palette (OKLCH) ── */
+  --color-editorial-magenta:       oklch(60% 0.25 350);
+  --color-editorial-magenta-deep:  oklch(52% 0.25 350);
+  --color-magenta-whisper:         oklch(60% 0.25 350 / 0.15);
+  --color-magenta-veil:            oklch(60% 0.25 350 / 0.25);
+
+  --color-warm-ash-cream:          oklch(96% 0.005 350);
+  --color-crisp-paper-white:       oklch(98% 0 0);
+  --color-paper-mist:              oklch(92% 0 0);
+  --color-mid-ash:                 oklch(55% 0 0);
+  --color-soft-charcoal:           oklch(25% 0 0);
+  --color-deep-graphite:           oklch(10% 0 0);
+
+  /* ── Semantic mapping ── */
+  --color-bg:        var(--color-warm-ash-cream);
+  --color-surface:   var(--color-crisp-paper-white);
+  --color-text:      var(--color-deep-graphite);
+  --color-text-dim:  var(--color-soft-charcoal);
+  --color-muted:     var(--color-mid-ash);
+  --color-border:    var(--color-paper-mist);
+  --color-accent:    var(--color-editorial-magenta);
+  --color-accent-dim: var(--color-magenta-whisper);
+
+  /* ── Typography families ── */
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body:    'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --font-mono:    'Space Grotesk', ui-monospace, monospace;
+
+  /* ── Spacing scale (editorial: skips 4px) ── */
+  --spacing-xs:  8px;
+  --spacing-sm:  16px;
+  --spacing-md:  24px;
+  --spacing-lg:  32px;
+  --spacing-xl:  48px;
+  --spacing-2xl: 80px;
+  --spacing-3xl: 120px;
+
+  /* ── Radii (controlled vocabulary) ── */
+  --radius-none: 0;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+
+  /* ── Shadow vocabulary ── */
+  --shadow-lifted-card:     0 20px 40px rgba(0,0,0,0.08);
+  --shadow-popover:         0 2px 8px rgba(0,0,0,0.1);
+
+  /* ── Motion ── */
+  --ease-out:       cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-color: 150ms;
+  --duration-xform: 300ms;
+
+  /* ── Container widths ── */
+  --width-content: 900px;
+  --width-max:    1400px;
+}
