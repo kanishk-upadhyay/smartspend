@@ -1234,9 +1234,17 @@ export default function App() {
                 className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
-                <div className="flex justify-between items-baseline mb-6">
+                <div className="flex justify-end mb-3">
+                  <button
+                    onClick={() => setShowHeicHelper(false)}
+                    aria-label="Close"
+                    className="btn-text"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="mb-6">
                   <h3 className="headline text-2xl text-[var(--color-deep-graphite)]">Convert HEIC / HEIF</h3>
-                  <button onClick={() => setShowHeicHelper(false)} aria-label="Close" className="btn-text">Close</button>
                 </div>
                 <div className="space-y-4 font-body text-base text-[var(--color-soft-charcoal)]" style={{ lineHeight: 1.65 }}>
                   <p>Most browsers can't preview HEIC/HEIF. Quick fixes:</p>
@@ -1263,6 +1271,15 @@ export default function App() {
                 className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
+                <div className="flex justify-end mb-3">
+                  <button
+                    onClick={() => setShowItemsModal(false)}
+                    aria-label="Close"
+                    className="btn-text"
+                  >
+                    Close
+                  </button>
+                </div>
                 <div className="flex justify-between items-start gap-6 mb-8">
                   <div>
                     <p className="micro-label mb-3">Receipt</p>
@@ -1275,7 +1292,6 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-3 justify-end">
                     <button onClick={() => handleEditExpense(selectedExpense)} className="btn-quiet btn--sm">Edit</button>
                     <button onClick={() => handleDeleteExpense(selectedExpense)} className="btn-danger btn--sm">Delete</button>
-                    <button onClick={() => setShowItemsModal(false)} aria-label="Close" className="btn-text">Close</button>
                   </div>
                 </div>
 
@@ -1357,12 +1373,20 @@ export default function App() {
                 className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
+                <div className="flex justify-end mb-3">
+                  <button
+                    onClick={() => setEditDraft(null)}
+                    aria-label="Close"
+                    className="btn-text"
+                  >
+                    Close
+                  </button>
+                </div>
                 <div className="flex justify-between items-baseline mb-8">
                   <div>
                     <p className="micro-label mb-3">Edit receipt</p>
                     <h3 className="headline text-2xl text-[var(--color-deep-graphite)]">{editDraft.vendor || 'Untitled'}</h3>
                   </div>
-                  <button onClick={() => setEditDraft(null)} aria-label="Close" className="btn-text">Cancel</button>
                 </div>
 
                 <div className="space-y-6">
