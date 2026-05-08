@@ -1,0 +1,10 @@
+entrypoint = "backend/main.py"
+modules = ["python-3.11", "nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+deploymentTarget = "cloudrun"
+build = ["sh", "-c", "cd frontend && npm ci && npm run build && cd ../backend && pip install -r requirements.txt"]
+run = ["sh", "-c", "cd backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
