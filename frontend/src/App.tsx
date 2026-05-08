@@ -559,12 +559,12 @@ export default function App() {
       <div className="grid grid-cols-1 lg:grid-cols-12 min-h-screen mx-auto" style={{ maxWidth: 'var(--width-max)' }}>
 
         {/* Sidebar — quiet editorial nav, no glow, no watermark */}
-        <nav className="lg:col-span-2 lg:sticky lg:top-0 lg:self-start lg:h-screen px-8 py-12 border-b lg:border-b-0 lg:border-r border-[var(--color-paper-mist)] flex lg:flex-col gap-8">
+        <nav className="lg:col-span-2 lg:sticky lg:top-0 lg:self-start lg:h-screen px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-12 border-b lg:border-b-0 lg:border-r border-[var(--color-paper-mist)] flex flex-col sm:flex-row lg:flex-col gap-4 sm:gap-6 lg:gap-8">
           <div className="flex items-baseline gap-2">
             <span className="display-italic text-3xl">Smart</span>
             <span className="font-body text-sm font-medium tracking-[0.1em] uppercase text-[var(--color-mid-ash)]">Spend</span>
           </div>
-          <div className="flex lg:flex-col gap-6 lg:gap-2 lg:mt-6">
+          <div className="flex flex-wrap sm:flex-nowrap lg:flex-col gap-3 sm:gap-6 lg:gap-2 lg:mt-6">
             {navItem('dashboard', 'Dashboard', LayoutDashboard)}
             {navItem('analytics', 'Analytics', BarChart3)}
             {navItem('history', 'Receipts', History)}
@@ -572,7 +572,7 @@ export default function App() {
         </nav>
 
         {/* Main */}
-        <main className="lg:col-span-10 overflow-y-auto custom-scrollbar">
+        <main className="lg:col-span-10 overflow-y-auto overflow-x-hidden custom-scrollbar">
 
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' && (
@@ -582,10 +582,10 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="px-12 py-20 mx-auto"
+                className="px-4 sm:px-6 lg:px-12 py-10 sm:py-14 lg:py-20 mx-auto"
                 style={{ maxWidth: 'var(--width-content)' }}
               >
-                <header className="mb-20">
+                <header className="mb-12 sm:mb-16 lg:mb-20">
                   <p className="micro-label mb-4">Receipts · Capture</p>
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Today's ledger.</h1>
                   <p className="title-italic mt-4 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)' }}>
@@ -603,13 +603,13 @@ export default function App() {
                       onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
                       onDrop={handleDrop}
-                      className={`block relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-20 bg-[var(--color-crisp-paper-white)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
+                      className={`block relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-12 sm:py-16 lg:py-20 bg-[var(--color-crisp-paper-white)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
                       style={{ borderRadius: 'var(--radius-md)' }}
                     >
                       {loading ? (
                         <div className="flex flex-col items-center gap-3">
                           <Loader2 className="w-8 h-8 text-[var(--color-accent)] animate-spin" />
-                          <p className="font-body text-sm text-[var(--color-soft-charcoal)] italic truncate max-w-[260px]">
+                          <p className="font-body text-sm text-[var(--color-soft-charcoal)] italic truncate max-w-[180px] sm:max-w-[260px]">
                             Reading {pendingFiles[0]?.name || 'receipt'}…
                           </p>
                         </div>
@@ -669,7 +669,7 @@ export default function App() {
                           exit={{ opacity: 0, y: -8 }}
                           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
                         >
-                          <div className="flex items-baseline gap-3 mb-6">
+                          <div className="flex flex-wrap items-baseline gap-3 mb-6">
                             <p className="micro-label">Review</p>
                             <span className="font-mono text-xs text-[var(--color-mid-ash)]">
                               {pendingFiles.length > 1
@@ -703,7 +703,7 @@ export default function App() {
                               />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                               <div>
                                 <label className="micro-label block mb-2">Total</label>
                                 <input
@@ -788,15 +788,15 @@ export default function App() {
                                 </div>
                               )}
 
-                              <div className="space-y-3">
-                                <div className="grid grid-cols-12 gap-3 px-1">
+                              <div className="space-y-3 overflow-x-auto">
+                                <div className="grid min-w-[560px] grid-cols-12 gap-3 px-1">
                                   <p className="micro-label col-span-6">Item</p>
                                   <p className="micro-label col-span-2">Qty</p>
                                   <p className="micro-label col-span-3">Amount</p>
                                   <span className="col-span-1" />
                                 </div>
                                 {(result.extracted_data.items || []).map((it, idx) => (
-                                  <div key={idx} className="grid grid-cols-12 gap-3 items-center">
+                                  <div key={idx} className="grid min-w-[560px] grid-cols-12 gap-3 items-center">
                                     <input
                                       className="input-editorial col-span-6"
                                       value={it.name}
@@ -881,10 +881,10 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="px-12 py-20 mx-auto"
+                 className="px-4 sm:px-6 lg:px-12 py-10 sm:py-14 lg:py-20 mx-auto"
                 style={{ maxWidth: 'var(--width-content)' }}
               >
-                <header className="mb-16">
+                 <header className="mb-12 sm:mb-16">
                   <p className="micro-label mb-4">Analytics</p>
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>How you spend.</h1>
                   <p className="title-italic mt-4 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)' }}>
@@ -899,7 +899,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-20">
                     {/* Top-line stats */}
-                    <section className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-10 pb-12 border-b border-[var(--color-paper-mist)]">
+                    <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-8 sm:gap-y-10 pb-10 sm:pb-12 border-b border-[var(--color-paper-mist)]">
                       <div>
                         <p className="micro-label mb-2">Total spent</p>
                         <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}>
@@ -1073,10 +1073,10 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="px-12 py-20 mx-auto"
+                className="px-4 sm:px-6 lg:px-12 py-10 sm:py-14 lg:py-20 mx-auto"
                 style={{ maxWidth: 'var(--width-content)' }}
               >
-                <header className="mb-16">
+                <header className="mb-12 sm:mb-16">
                   <p className="micro-label mb-4">Receipts</p>
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Every receipt, in order.</h1>
                 </header>
@@ -1107,7 +1107,7 @@ export default function App() {
                       </button>
                       {filterOpen && (
                         <div
-                          className="absolute right-0 mt-2 w-64 bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-4 z-20"
+                          className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-4 z-20"
                           style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                         >
                           <p className="micro-label mb-3">Filter by category</p>
@@ -1151,7 +1151,35 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div>
+                  <>
+                  <div className="md:hidden space-y-3">
+                    {filteredExpenses.map((exp) => (
+                      <button
+                        key={exp.id}
+                        onClick={() => {
+                          setSelectedExpense(exp);
+                          const sourceCurrency = exp.source_currency || exp.currency || DEFAULT_CURRENCY;
+                          const displayCurrency = exp.currency || DEFAULT_CURRENCY;
+                          setHistoryCurrencyMode(
+                            sourceCurrency !== displayCurrency && sourceCurrency === preferredHistoryCurrency ? 'source' : 'converted'
+                          );
+                          setShowItemsModal(true);
+                        }}
+                        className="w-full text-left border border-[var(--color-paper-mist)] p-4 bg-[var(--color-crisp-paper-white)]"
+                        style={{ borderRadius: 'var(--radius-md)' }}
+                      >
+                        <p className="font-body text-base font-medium text-[var(--color-deep-graphite)] truncate">{exp.vendor}</p>
+                        <p className="font-body text-sm text-[var(--color-soft-charcoal)] italic mt-1">{exp.category}</p>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <span className="font-mono text-xs text-[var(--color-mid-ash)]">{exp.date}</span>
+                          <span className="font-body text-base font-medium text-[var(--color-deep-graphite)]">
+                            {formatMoney(exp.total_amount, exp.currency || DEFAULT_CURRENCY)}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="hidden md:block">
                     <div className="grid grid-cols-12 gap-6 px-2 py-3 sticky top-0 z-10 bg-[var(--color-bg)] border-y border-[var(--color-paper-mist)]">
                       <p className="micro-label col-span-5">Merchant</p>
                       <p className="micro-label col-span-3">Category</p>
@@ -1192,6 +1220,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  </>
                 )}
               </motion.div>
             )}
@@ -1199,10 +1228,10 @@ export default function App() {
 
           {/* HEIC helper dialog */}
           {showHeicHelper && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
               <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setShowHeicHelper(false)} />
               <div
-                className="relative z-10 w-full max-w-lg bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-8"
+                className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-between items-baseline mb-6">
@@ -1228,10 +1257,10 @@ export default function App() {
 
           {/* Receipt details modal */}
           {showItemsModal && selectedExpense && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
               <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setShowItemsModal(false)} />
               <div
-                className="relative z-10 w-full max-w-2xl bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-10"
+                className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-between items-start gap-6 mb-8">
@@ -1243,7 +1272,7 @@ export default function App() {
                       {selectedExpense.fx_rate_date && <> · FX {selectedExpense.fx_rate_date}</>}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3 justify-end">
                     <button onClick={() => handleEditExpense(selectedExpense)} className="btn-quiet btn--sm">Edit</button>
                     <button onClick={() => handleDeleteExpense(selectedExpense)} className="btn-danger btn--sm">Delete</button>
                     <button onClick={() => setShowItemsModal(false)} aria-label="Close" className="btn-text">Close</button>
@@ -1322,10 +1351,10 @@ export default function App() {
 
           {/* Edit modal */}
           {editDraft && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
               <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setEditDraft(null)} />
               <div
-                className="relative z-10 w-full max-w-xl bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-10"
+                className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-between items-baseline mb-8">
@@ -1345,7 +1374,7 @@ export default function App() {
                       onChange={(e) => setEditDraft(d => d ? { ...d, vendor: e.target.value } : d)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                       <label className="micro-label block mb-2">Total</label>
                       <input
@@ -1390,7 +1419,7 @@ export default function App() {
           )}
 
           {/* Toast stack — bottom-right, paper-white, hairline border, optional action */}
-          <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none">
+          <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col gap-3 pointer-events-none">
             <AnimatePresence>
               {toasts.map(t => (
                 <motion.div
@@ -1399,7 +1428,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 12 }}
                   transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                  className="pointer-events-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] px-5 py-4 flex items-center gap-4 min-w-[280px] max-w-md"
+                  className="pointer-events-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 w-[calc(100vw-2rem)] sm:w-auto min-w-0 sm:min-w-[280px] max-w-md"
                   style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                 >
                   {t.tone === 'accent' && (
