@@ -148,6 +148,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [showItemsModal, setShowItemsModal] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
@@ -404,7 +405,8 @@ export default function App() {
   };
 
   const saveExpense = async () => {
-    if (!result) return;
+    if (!result || isSaving) return;
+    setIsSaving(true);
     try {
       const sourceCurrency = result.extracted_data.source_currency || DEFAULT_CURRENCY;
       const receiptDate = result.extracted_data.receipt_date || result.extracted_data.date;
@@ -436,6 +438,8 @@ export default function App() {
       console.error('Save failed:', error);
       pushToast({ message: `Save failed: ${getErrorMessage(error, 'Unknown error')}`, tone: 'danger', duration: 5000 });
       setAnnouncement(`Unable to save expense: ${getErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -852,9 +856,13 @@ export default function App() {
                               </div>
                             </div>
 
-                            <button onClick={saveExpense} className="btn-primary w-full">
+                            <button
+                              onClick={saveExpense}
+                              disabled={isSaving}
+                              className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
                               <CheckCircle2 className="w-4 h-4" />
-                              Save receipt
+                              {isSaving ? 'Saving…' : 'Save receipt'}
                             </button>
                           </div>
                         </motion.div>
@@ -946,8 +954,8 @@ export default function App() {
                     <section>
                       <p className="micro-label mb-6">By category</p>
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-                        <div className="lg:col-span-5 h-[280px]">
-                          <ResponsiveContainer width="100%" height="100%">
+                        <div className="lg:col-span-5 h-[280px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
                             <PieChart>
                               <Pie
                                 data={chartData}
@@ -1006,8 +1014,8 @@ export default function App() {
                           Receipts need parsable dates to plot a timeline. Edit a receipt's date to add it here.
                         </p>
                       ) : (
-                        <div className="h-[280px]">
-                          <ResponsiveContainer width="100%" height="100%">
+                        <div className="h-[280px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
                             <BarChart data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="oklch(92% 0 0)" />
                               <XAxis
