@@ -88,18 +88,24 @@ def _upload_to_supabase(local_path: str, object_name: str, content_type: str) ->
         )
 
     target = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
-    with open(local_path, "rb") as payload:
-        response = httpx.post(
-            target,
-            content=payload.read(),
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": content_type,
-                "x-upsert": "true",
-            },
-            timeout=30.0,
-        )
+    try:
+        with open(local_path, "rb") as payload:
+            response = httpx.post(
+                target,
+                content=payload.read(),
+                headers={
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": content_type,
+                    "x-upsert": "true",
+                },
+                timeout=30.0,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach Supabase Storage. Check SUPABASE_URL and network egress.",
+        ) from exc
 
     if response.status_code >= 300:
         raise HTTPException(
@@ -278,6 +284,14 @@ async def upload_receipt(file: UploadFile = File(...)):
             os.remove(file_path)
         logger.warning("OCR extraction failed for %s: %s", saved_name, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+        logger.exception("Unexpected upload OCR failure for %s", saved_name)
+        raise HTTPException(
+            status_code=500,
+            detail="Upload processing failed unexpectedly. Check deployment logs.",
+        ) from exc
 
     image_path = saved_name
     if SUPABASE_URL and SUPABASE_KEY:

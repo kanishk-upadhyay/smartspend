@@ -103,6 +103,9 @@ class GeminiExtractor:
                 logger.warning("Gemini API error: %s", exc)
                 if attempt >= attempts:
                     raise ReceiptExtractionError("OCR failed due to an upstream API error. Please retry.") from exc
+            except Exception as exc:
+                logger.exception("Unexpected Gemini extraction failure")
+                raise ReceiptExtractionError("OCR processing failed unexpectedly. Please retry.") from exc
             if attempt < attempts:
                 time.sleep(self.retry_backoff_seconds * attempt)
 
