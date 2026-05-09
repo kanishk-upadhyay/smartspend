@@ -204,11 +204,17 @@ def list_expenses():
 @app.post("/expenses", response_model=ExpenseResponse)
 def create_expense(expense: ExpenseBase):
     db = SessionLocal()
+    if expense.image_path:
+        _validate_image_path(expense.image_path)
+        existing = db.query(Expense).filter(Expense.image_path == expense.image_path).first()
+        if existing is not None:
+            _attach_items(existing)
+            db.close()
+            return existing
+
     payload = expense.dict(exclude={"items"})
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
-    if expense.image_path:
-        _validate_image_path(expense.image_path)
     db.add(db_expense)
     db.commit()
     db.refresh(db_expense)
