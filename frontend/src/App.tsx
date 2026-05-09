@@ -30,6 +30,9 @@ const API_URL = (
   (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
 ).replace(/\/$/, '');
 
+const getReceiptUrl = (imagePath: string) =>
+  /^https?:\/\//i.test(imagePath) ? imagePath : `${API_URL}/uploads/${imagePath}`;
+
 interface Expense {
   id: number;
   vendor: string;
@@ -684,10 +687,10 @@ export default function App() {
                           {result.image_path && (
                             <div className="mb-6 border border-[var(--color-paper-mist)] bg-[var(--color-warm-ash-cream)] flex items-center justify-center overflow-hidden" style={{ borderRadius: 'var(--radius-md)' }}>
                               {result.image_path.toLowerCase().endsWith('.pdf') ? (
-                                <embed src={`${API_URL}/uploads/${result.image_path}`} type="application/pdf" className="w-full h-64" />
+                                <embed src={getReceiptUrl(result.image_path)} type="application/pdf" className="w-full h-64" />
                               ) : (
-                                <a href={`${API_URL}/uploads/${result.image_path}`} target="_blank" rel="noreferrer" className="block">
-                                  <img src={`${API_URL}/uploads/${result.image_path}`} alt={pendingFiles[0]?.name || 'Receipt'} className="max-h-64 object-contain mx-auto" />
+                                <a href={getReceiptUrl(result.image_path)} target="_blank" rel="noreferrer" className="block">
+                                  <img src={getReceiptUrl(result.image_path)} alt={pendingFiles[0]?.name || 'Receipt'} className="max-h-64 object-contain mx-auto" />
                                 </a>
                               )}
                             </div>
@@ -1298,10 +1301,10 @@ export default function App() {
                 {selectedExpense.image_path && (
                   <div className="mb-8 border border-[var(--color-paper-mist)] bg-[var(--color-warm-ash-cream)] flex items-center justify-center overflow-hidden" style={{ borderRadius: 'var(--radius-md)' }}>
                     {selectedExpense.image_path.toLowerCase().endsWith('.pdf') ? (
-                      <embed src={`${API_URL}/uploads/${selectedExpense.image_path}`} type="application/pdf" className="w-full h-72" />
+                      <embed src={getReceiptUrl(selectedExpense.image_path)} type="application/pdf" className="w-full h-72" />
                     ) : (
-                      <a href={`${API_URL}/uploads/${selectedExpense.image_path}`} target="_blank" rel="noreferrer" className="block">
-                        <img src={`${API_URL}/uploads/${selectedExpense.image_path}`} alt={`Receipt for ${selectedExpense.vendor}`} className="max-h-80 object-contain mx-auto" />
+                      <a href={getReceiptUrl(selectedExpense.image_path)} target="_blank" rel="noreferrer" className="block">
+                        <img src={getReceiptUrl(selectedExpense.image_path)} alt={`Receipt for ${selectedExpense.vendor}`} className="max-h-80 object-contain mx-auto" />
                       </a>
                     )}
                   </div>
