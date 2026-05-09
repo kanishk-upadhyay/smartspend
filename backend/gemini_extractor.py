@@ -1,10 +1,15 @@
 import mimetypes
 import os
+import logging
+import time
 from typing import Literal, Optional
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 Category = Literal["Food", "Transport", "Shopping", "Bills", "General"]
@@ -45,12 +50,19 @@ class ReceiptData(BaseModel):
     category: Category
 
 
+class ReceiptExtractionError(RuntimeError):
+    pass
+
+
 class GeminiExtractor:
     def __init__(self):
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set")
         self.client = genai.Client(api_key=api_key)
+        self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        self.max_retries = int(os.environ.get("GEMINI_MAX_RETRIES", "2"))
+        self.retry_backoff_seconds = float(os.environ.get("GEMINI_RETRY_BACKOFF_SECONDS", "1.5"))
 
     def extract(self, image_path: str) -> ReceiptData:
         mime, _ = mimetypes.guess_type(image_path)
@@ -58,15 +70,40 @@ class GeminiExtractor:
             mime = "image/jpeg"
         with open(image_path, "rb") as f:
             image_bytes = f.read()
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime),
-                PROMPT,
-            ],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": ReceiptData,
-            },
-        )
-        return response.parsed
+        attempts = self.max_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=[
+                        types.Part.from_bytes(data=image_bytes, mime_type=mime),
+                        PROMPT,
+                    ],
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_schema": ReceiptData,
+                    },
+                )
+                if response.parsed is None:
+                    raise ReceiptExtractionError("OCR model returned an empty structured response.")
+                return response.parsed
+            except genai_errors.ServerError as exc:
+                logger.warning(
+                    "Gemini server error on attempt %s/%s: %s",
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                if attempt >= attempts:
+                    raise ReceiptExtractionError("OCR service is temporarily unavailable. Please retry.") from exc
+            except genai_errors.ClientError as exc:
+                logger.warning("Gemini client error: %s", exc)
+                raise ReceiptExtractionError("OCR request was rejected by Gemini. Verify API key and quota.") from exc
+            except genai_errors.APIError as exc:
+                logger.warning("Gemini API error: %s", exc)
+                if attempt >= attempts:
+                    raise ReceiptExtractionError("OCR failed due to an upstream API error. Please retry.") from exc
+            if attempt < attempts:
+                time.sleep(self.retry_backoff_seconds * attempt)
+
+        raise ReceiptExtractionError("OCR failed unexpectedly after retries.")

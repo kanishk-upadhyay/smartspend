@@ -4,6 +4,10 @@ backend/__pycache__/
 backend/smartspend.db
 backend/uploads/
 uploads/
+/node_modules/
+/dist/
+/.netlify/
+/frontend/.netlify/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
