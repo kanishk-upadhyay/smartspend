@@ -1105,20 +1105,20 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                     <div className="relative">
                       <button
                         onClick={() => setFilterOpen(o => !o)}
                         aria-expanded={filterOpen}
                         aria-pressed={filterCategories.length > 0}
-                        className="btn-quiet"
+                        className="btn-quiet w-full sm:w-auto"
                       >
                         <Filter className="w-4 h-4" />
                         Filter {filterCategories.length > 0 && <span className="font-mono text-xs">({filterCategories.length})</span>}
                       </button>
                       {filterOpen && (
                         <div
-                          className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-4 z-20"
+                          className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-4 z-20"
                           style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                         >
                           <p className="micro-label mb-3">Filter by category</p>
@@ -1146,7 +1146,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                    <button onClick={exportCSV} className="btn-quiet">
+                    <button onClick={exportCSV} className="btn-quiet w-full sm:w-auto">
                       Export CSV
                     </button>
                   </div>
@@ -1239,7 +1239,7 @@ export default function App() {
 
           {/* HEIC helper dialog */}
           {showHeicHelper && (
-            <div role="dialog" aria-modal="true" aria-labelledby="heic-helper-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <div role="dialog" aria-modal="true" aria-labelledby="heic-helper-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
               <button
                 type="button"
                 aria-label="Close HEIC help dialog"
@@ -1247,7 +1247,7 @@ export default function App() {
                 onClick={() => setShowHeicHelper(false)}
               />
               <div
-                className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8"
+                className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -1281,7 +1281,7 @@ export default function App() {
 
           {/* Receipt details modal */}
           {showItemsModal && selectedExpense && (
-            <div role="dialog" aria-modal="true" aria-labelledby="receipt-details-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <div role="dialog" aria-modal="true" aria-labelledby="receipt-details-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
               <button
                 type="button"
                 aria-label="Close receipt details dialog"
@@ -1289,7 +1289,7 @@ export default function App() {
                 onClick={() => setShowItemsModal(false)}
               />
               <div
-                className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
+                className="relative z-10 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -1301,7 +1301,7 @@ export default function App() {
                     Close
                   </button>
                 </div>
-                <div className="flex justify-between items-start gap-6 mb-8">
+                <div className="flex flex-col sm:flex-row sm:justify-between items-start gap-4 sm:gap-6 mb-8">
                   <div>
                     <p className="micro-label mb-3">Receipt</p>
                     <h3 id="receipt-details-title" className="headline text-3xl text-[var(--color-deep-graphite)]">{selectedExpense.vendor}</h3>
@@ -1310,7 +1310,7 @@ export default function App() {
                       {selectedExpense.fx_rate_date && <> · FX {selectedExpense.fx_rate_date}</>}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 justify-end">
+                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end">
                     <button onClick={() => handleEditExpense(selectedExpense)} className="btn-quiet btn--sm">Edit</button>
                     <button onClick={() => handleDeleteExpense(selectedExpense)} className="btn-danger btn--sm">Delete</button>
                   </div>
@@ -1388,7 +1388,7 @@ export default function App() {
 
           {/* Edit modal */}
           {editDraft && (
-            <div role="dialog" aria-modal="true" aria-labelledby="edit-receipt-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <div role="dialog" aria-modal="true" aria-labelledby="edit-receipt-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
               <button
                 type="button"
                 aria-label="Close edit receipt dialog"
@@ -1396,7 +1396,7 @@ export default function App() {
                 onClick={() => setEditDraft(null)}
               />
               <div
-                className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
+                className="relative z-10 w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -1460,7 +1460,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="mt-10 flex justify-end gap-3">
+                <div className="mt-10 flex flex-col-reverse sm:flex-row justify-end gap-3">
                   <button onClick={() => setEditDraft(null)} className="btn-quiet btn--sm">Cancel</button>
                   <button onClick={saveEdit} className="btn-primary btn--sm">Save changes</button>
                 </div>
