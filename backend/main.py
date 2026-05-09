@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import shutil
+from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, Expense
 from ocr_utils import ocr_engine
 from gemini_extractor import ReceiptExtractionError
@@ -216,7 +217,18 @@ def create_expense(expense: ExpenseBase):
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
     db.add(db_expense)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if expense.image_path:
+            existing = db.query(Expense).filter(Expense.image_path == expense.image_path).first()
+            if existing is not None:
+                _attach_items(existing)
+                db.close()
+                return existing
+        db.close()
+        raise
     db.refresh(db_expense)
     _attach_items(db_expense)
     db.close()

@@ -520,9 +520,12 @@ export default function App() {
           const timer = deletionTimers.current.get(exp.id);
           if (timer) clearTimeout(timer);
           deletionTimers.current.delete(exp.id);
-          setExpenses(prev => [exp, ...prev].sort((a, b) =>
-            (b.receipt_date || b.date || '').localeCompare(a.receipt_date || a.date || '')
-          ));
+          setExpenses(prev => {
+            const withoutExisting = prev.filter(item => item.id !== exp.id);
+            return [exp, ...withoutExisting].sort((a, b) =>
+              (b.receipt_date || b.date || '').localeCompare(a.receipt_date || a.date || '')
+            );
+          });
           dismissToast(toastId);
           setAnnouncement('Deletion undone');
         },
@@ -536,9 +539,12 @@ export default function App() {
       } catch (error) {
         console.error('Delete failed', error);
         // restore on failure so the user isn't silently lying to
-        setExpenses(prev => [exp, ...prev].sort((a, b) =>
-          (b.receipt_date || b.date || '').localeCompare(a.receipt_date || a.date || '')
-        ));
+        setExpenses(prev => {
+          const withoutExisting = prev.filter(item => item.id !== exp.id);
+          return [exp, ...withoutExisting].sort((a, b) =>
+            (b.receipt_date || b.date || '').localeCompare(a.receipt_date || a.date || '')
+          );
+        });
         pushToast({
           message: `Unable to delete: ${getErrorMessage(error, 'Unknown error')}`,
           tone: 'danger',
