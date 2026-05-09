@@ -335,11 +335,19 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showHeicHelper) setShowHeicHelper(false);
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (editDraft) {
+        setEditDraft(null);
+      } else if (showItemsModal) {
+        setShowItemsModal(false);
+      } else if (showHeicHelper) {
+        setShowHeicHelper(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showHeicHelper]);
+  }, [editDraft, showHeicHelper, showItemsModal]);
 
   const runOcr = async (file: File) => {
     setLoading(true);
@@ -1231,8 +1239,13 @@ export default function App() {
 
           {/* HEIC helper dialog */}
           {showHeicHelper && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-              <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setShowHeicHelper(false)} />
+            <div role="dialog" aria-modal="true" aria-labelledby="heic-helper-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+              <button
+                type="button"
+                aria-label="Close HEIC help dialog"
+                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                onClick={() => setShowHeicHelper(false)}
+              />
               <div
                 className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
@@ -1247,7 +1260,7 @@ export default function App() {
                   </button>
                 </div>
                 <div className="mb-6">
-                  <h3 className="headline text-2xl text-[var(--color-deep-graphite)]">Convert HEIC / HEIF</h3>
+                  <h3 id="heic-helper-title" className="headline text-2xl text-[var(--color-deep-graphite)]">Convert HEIC / HEIF</h3>
                 </div>
                 <div className="space-y-4 font-body text-base text-[var(--color-soft-charcoal)]" style={{ lineHeight: 1.65 }}>
                   <p>Most browsers can't preview HEIC/HEIF. Quick fixes:</p>
@@ -1268,8 +1281,13 @@ export default function App() {
 
           {/* Receipt details modal */}
           {showItemsModal && selectedExpense && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-              <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setShowItemsModal(false)} />
+            <div role="dialog" aria-modal="true" aria-labelledby="receipt-details-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+              <button
+                type="button"
+                aria-label="Close receipt details dialog"
+                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                onClick={() => setShowItemsModal(false)}
+              />
               <div
                 className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
@@ -1286,7 +1304,7 @@ export default function App() {
                 <div className="flex justify-between items-start gap-6 mb-8">
                   <div>
                     <p className="micro-label mb-3">Receipt</p>
-                    <h3 className="headline text-3xl text-[var(--color-deep-graphite)]">{selectedExpense.vendor}</h3>
+                    <h3 id="receipt-details-title" className="headline text-3xl text-[var(--color-deep-graphite)]">{selectedExpense.vendor}</h3>
                     <p className="font-body text-sm text-[var(--color-mid-ash)] mt-2">
                       {selectedExpense.receipt_date || selectedExpense.date}
                       {selectedExpense.fx_rate_date && <> · FX {selectedExpense.fx_rate_date}</>}
@@ -1370,8 +1388,13 @@ export default function App() {
 
           {/* Edit modal */}
           {editDraft && (
-            <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-              <div className="absolute inset-0 bg-[var(--color-deep-graphite)]/40" onClick={() => setEditDraft(null)} />
+            <div role="dialog" aria-modal="true" aria-labelledby="edit-receipt-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+              <button
+                type="button"
+                aria-label="Close edit receipt dialog"
+                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                onClick={() => setEditDraft(null)}
+              />
               <div
                 className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
@@ -1388,7 +1411,7 @@ export default function App() {
                 <div className="flex justify-between items-baseline mb-8">
                   <div>
                     <p className="micro-label mb-3">Edit receipt</p>
-                    <h3 className="headline text-2xl text-[var(--color-deep-graphite)]">{editDraft.vendor || 'Untitled'}</h3>
+                    <h3 id="edit-receipt-title" className="headline text-2xl text-[var(--color-deep-graphite)]">{editDraft.vendor || 'Untitled'}</h3>
                   </div>
                 </div>
 
