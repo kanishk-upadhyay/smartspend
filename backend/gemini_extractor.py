@@ -66,8 +66,8 @@ class GeminiExtractor:
 
     def extract(self, image_path: str) -> ReceiptData:
         mime, _ = mimetypes.guess_type(image_path)
-        if not mime or not mime.startswith("image/"):
-            mime = "image/jpeg"
+        if not mime:
+            mime = "application/octet-stream"
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         attempts = self.max_retries + 1

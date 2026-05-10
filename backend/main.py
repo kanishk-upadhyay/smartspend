@@ -2,6 +2,7 @@ import os
 import json
 import mimetypes
 import logging
+import base64
 from uuid import uuid4
 from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
@@ -9,11 +10,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import httpx
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import shutil
 from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, Expense
 from ocr_utils import ocr_engine
@@ -179,6 +179,12 @@ class ExpenseUpdate(BaseModel):
     items: Optional[list] = None
     image_path: Optional[str] = None
 
+
+class UploadRequest(BaseModel):
+    filename: str
+    content_type: Optional[str] = None
+    data_base64: str
+
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -281,8 +287,8 @@ def delete_expense(expense_id: int):
     return {"id": expense_id, "deleted": True}
 
 @app.post("/upload")
-async def upload_receipt(file: UploadFile = File(...)):
-    original_name = file.filename or ""
+async def upload_receipt(payload: UploadRequest):
+    original_name = payload.filename or ""
     ext = os.path.splitext(original_name)[1].lower()
     if ext not in ALLOWED_UPLOAD_EXTS:
         raise HTTPException(
@@ -292,8 +298,16 @@ async def upload_receipt(file: UploadFile = File(...)):
 
     saved_name = f"{uuid4().hex}{ext}"
     file_path = _safe_upload_path(saved_name)
+    try:
+        raw_bytes = base64.b64decode(payload.data_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid upload payload") from exc
+
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Empty upload payload")
+
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(raw_bytes)
 
     try:
         extracted_data = ocr_engine.extract_data(file_path)
@@ -313,7 +327,7 @@ async def upload_receipt(file: UploadFile = File(...)):
 
     image_path = saved_name
     if SUPABASE_URL and SUPABASE_KEY:
-        content_type = file.content_type or mimetypes.guess_type(saved_name)[0] or "application/octet-stream"
+        content_type = payload.content_type or mimetypes.guess_type(saved_name)[0] or "application/octet-stream"
         object_name = f"receipts/{saved_name}"
         try:
             image_path = _upload_to_supabase(file_path, object_name, content_type)

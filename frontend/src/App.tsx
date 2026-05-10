@@ -106,6 +106,18 @@ const saveToStorage = (key: string, value: string) => {
   }
 };
 
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const commaIndex = result.indexOf(',');
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : '');
+    };
+    reader.onerror = () => reject(reader.error || new Error('Unable to read file'));
+    reader.readAsDataURL(file);
+  });
+
 const formatMoney = (amount: number, currency = DEFAULT_CURRENCY) => {
   try {
     return new Intl.NumberFormat('en-IN', {
@@ -356,10 +368,12 @@ export default function App() {
 
   const runOcr = async (file: File) => {
     setLoading(true);
-    const formData = new FormData();
-    formData.append('file', file);
     try {
-      const response = await axios.post<UploadResult>(`${API_URL}/upload`, formData);
+      const response = await axios.post<UploadResult>(`${API_URL}/upload`, {
+        filename: file.name,
+        content_type: file.type || undefined,
+        data_base64: await fileToBase64(file),
+      });
       setResult(response.data);
       const suggested = response.data?.extracted_data?.category;
       if (suggested && CATEGORY_OPTIONS.includes(suggested)) {
