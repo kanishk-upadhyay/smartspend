@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
+import type { Session } from '@supabase/supabase-js';
 import {
   Upload,
   History,
@@ -10,6 +11,13 @@ import {
   Filter,
   LayoutDashboard,
   ChevronDown,
+  CircleUserRound,
+  LogIn,
+  LogOut,
+  Monitor,
+  MoonStar,
+  SunMedium,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   PieChart,
@@ -24,6 +32,9 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { applyThemePreference, getStoredThemePreference, THEME_STORAGE_KEY } from './lib/theme';
+import type { ThemePreference } from './lib/theme';
 
 const API_URL = (
   import.meta.env.VITE_API_URL ||
@@ -80,6 +91,15 @@ interface ExtractedData {
   category?: string;
 }
 
+interface AccountSettingsPayload {
+  display_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+  currency?: string | null;
+  theme?: 'system' | 'light' | 'dark' | null;
+  custom_categories?: string[];
+}
+
 // Editorial palette — magenta carries the one-voice rule. Pie slices step through a
 // single-hue tonal scale (graphite → ash) with magenta only on the leading slice.
 const SLICE_COLORS = [
@@ -94,9 +114,37 @@ const TEXT_DIM = 'oklch(55% 0 0)';
 
 const DEFAULT_CURRENCY = 'INR';
 const DEFAULT_CATEGORY = 'General';
-const CATEGORY_OPTIONS = ['Food', 'Transport', 'Shopping', 'Bills', DEFAULT_CATEGORY];
+const BASE_CATEGORY_OPTIONS = ['Food', 'Transport', 'Shopping', 'Bills', DEFAULT_CATEGORY];
 const LAST_RECEIPT_CURRENCY_KEY = 'smartspend:lastReceiptCurrency';
 const PREFERRED_HISTORY_CURRENCY_KEY = 'smartspend:preferredHistoryCurrency';
+const CATEGORY_STORAGE_KEY = 'smartspend:custom-categories';
+const GUEST_SESSION_KEY = 'smartspend:guest-session';
+
+const loadOrCreateGuestSessionId = () => {
+  try {
+    const existing = localStorage.getItem(GUEST_SESSION_KEY);
+    if (existing) return existing;
+    const created = `guest-${crypto.randomUUID()}`;
+    localStorage.setItem(GUEST_SESSION_KEY, created);
+    return created;
+  } catch {
+    return `guest-${crypto.randomUUID()}`;
+  }
+};
+
+const loadCustomCategories = () => {
+  try {
+    const raw = localStorage.getItem(CATEGORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => String(value).trim())
+      .filter((value) => value.length > 0 && !BASE_CATEGORY_OPTIONS.includes(value));
+  } catch {
+    return [];
+  }
+};
 
 const saveToStorage = (key: string, value: string) => {
   try {
@@ -154,7 +202,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback;
 };
 
-type View = 'dashboard' | 'analytics' | 'history';
+type View = 'dashboard' | 'analytics' | 'history' | 'account';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -182,11 +230,39 @@ export default function App() {
   const toastIdRef = useRef(0);
   const deletionTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const saveLockRef = useRef(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(getStoredThemePreference);
+  const [authReady, setAuthReady] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [guestSessionId] = useState<string>(() => loadOrCreateGuestSessionId());
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [customCategories, setCustomCategories] = useState<string[]>(loadCustomCategories);
+  const [categoryDraft, setCategoryDraft] = useState('');
+  const [prefetchedResults, setPrefetchedResults] = useState<UploadResult[]>([]);
+  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
+  const [accountDraft, setAccountDraft] = useState({
+    displayName: '',
+    email: '',
+    avatarUrl: '',
+    currency: DEFAULT_CURRENCY,
+  });
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const isGuestSession = !session?.user;
 
   const availableCategories = useMemo(() => {
     const s = Array.from(new Set(expenses.map(e => e.category))).sort();
     return s.length ? s : [DEFAULT_CATEGORY];
   }, [expenses]);
+
+  const categoryOptions = useMemo(() => {
+    const extras = customCategories.filter(cat => !BASE_CATEGORY_OPTIONS.includes(cat));
+    return Array.from(new Set([...BASE_CATEGORY_OPTIONS, ...extras]));
+  }, [customCategories]);
 
   const toggleCategory = (cat: string) => {
     setFilterCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
@@ -194,24 +270,87 @@ export default function App() {
 
   const clearFilters = () => setFilterCategories([]);
 
-  const fetchExpenses = async () => {
-    try {
-      const response = await axios.get<Expense[]>(`${API_URL}/expenses`);
-      const uniqueExpenses = Array.from(
-        new Map(response.data.map((expense: Expense) => [expense.id, expense])).values()
-      ).reverse() as Expense[];
-      setExpenses(uniqueExpenses);
-    } catch (error) {
-      console.error('Fetch failed:', error);
-      setAnnouncement(`Unable to load expenses: ${getErrorMessage(error, 'Unknown error')}`);
-    }
-  };
+  const promoteNextResult = useCallback(() => {
+    setPrefetchedResults(prev => {
+      if (prev.length === 0) {
+        setResult(null);
+        setCurrentFileName(null);
+        setCategoryWasSuggested(false);
+        return prev;
+      }
+
+      const [next, ...rest] = prev;
+      setResult(next);
+      setCurrentFileName(next.filename || null);
+      const suggested = next.extracted_data?.category;
+      if (suggested && BASE_CATEGORY_OPTIONS.concat(customCategories).includes(suggested)) {
+        setCategory(suggested);
+        setCategoryWasSuggested(true);
+      } else {
+        setCategory(DEFAULT_CATEGORY);
+        setCategoryWasSuggested(false);
+      }
+      return rest;
+    });
+  }, [customCategories]);
 
   useEffect(() => {
-    const load = async () => {
-      await fetchExpenses();
+    if (!result && prefetchedResults.length > 0) {
+      promoteNextResult();
+    }
+  }, [result, prefetchedResults, promoteNextResult]);
+
+  useEffect(() => {
+    applyThemePreference(themePreference);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, themePreference);
+    } catch {
+      // ignore storage failures
+    }
+  }, [themePreference]);
+
+  useEffect(() => {
+    try {
+      if (isGuestSession) {
+        localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(customCategories));
+      } else {
+        localStorage.removeItem(CATEGORY_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [customCategories, isGuestSession]);
+
+  useEffect(() => {
+    const client = supabase;
+    if (!isSupabaseConfigured || !client) {
+      setAuthReady(true);
+      return;
+    }
+
+    let active = true;
+    const bootstrap = async () => {
+      const { data, error } = await client.auth.getSession();
+      if (!active) return;
+      if (error) {
+        setAuthError(error.message);
+      }
+      setSession(data.session);
+      setAuthReady(true);
     };
-    load();
+
+    bootstrap();
+
+    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setAuthReady(true);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const totalSpent = useMemo(
@@ -301,6 +440,72 @@ export default function App() {
       ? selectedExpenseSourceCurrency
       : selectedExpenseDisplayCurrency)
     : DEFAULT_CURRENCY;
+  const queueRemainingCount = pendingFiles.length + prefetchedResults.length;
+  const isSignedIn = Boolean(session?.user);
+  const identityLabel = isSignedIn
+    ? (session?.user.email || 'Signed in')
+    : `Guest ${guestSessionId.slice(-6)}`;
+  const requestConfig = useMemo(() => ({
+    headers: {
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      'X-SmartSpend-Guest-Id': guestSessionId,
+    },
+  }), [guestSessionId, session?.access_token]);
+
+  const fetchExpenses = useCallback(async () => {
+    try {
+      const response = await axios.get<Expense[]>(`${API_URL}/expenses`, requestConfig);
+      const uniqueExpenses = Array.from(
+        new Map(response.data.map((expense: Expense) => [expense.id, expense])).values()
+      ).reverse() as Expense[];
+      setExpenses(uniqueExpenses);
+    } catch (error) {
+      console.error('Fetch failed:', error);
+      setAnnouncement(`Unable to load expenses: ${getErrorMessage(error, 'Unknown error')}`);
+    }
+  }, [requestConfig]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    fetchExpenses();
+  }, [authReady, fetchExpenses]);
+
+  const loadAccountSettings = useCallback(async () => {
+    try {
+      if (session?.user) {
+        await axios.post(`${API_URL}/account-migrate-guest`, {}, requestConfig);
+      }
+      const response = await axios.get<AccountSettingsPayload>(`${API_URL}/account-settings`, requestConfig);
+      const storedCategories = loadCustomCategories();
+      const nextTheme = response.data.theme === 'light' || response.data.theme === 'dark' || response.data.theme === 'system'
+        ? response.data.theme
+        : getStoredThemePreference();
+      setAccountDraft({
+        displayName: response.data.display_name || '',
+        email: response.data.email || session?.user?.email || '',
+        avatarUrl: response.data.avatar_url || '',
+        currency: response.data.currency || DEFAULT_CURRENCY,
+      });
+      setAuthName(response.data.display_name || '');
+      setAuthEmail(response.data.email || session?.user?.email || '');
+      setCustomCategories(
+        session?.user
+          ? (response.data.custom_categories || [])
+          : ((response.data.custom_categories && response.data.custom_categories.length > 0)
+            ? response.data.custom_categories
+            : storedCategories)
+      );
+      setThemePreference(nextTheme);
+      setAccountError(null);
+    } catch (error) {
+      setAccountError(getErrorMessage(error, 'Unable to load account settings.'));
+    }
+  }, [requestConfig, session?.user]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    loadAccountSettings();
+  }, [authReady, loadAccountSettings]);
 
   const isHeicFile = (f: File) => {
     const lower = (f.type || f.name || '').toLowerCase();
@@ -368,18 +573,28 @@ export default function App() {
 
   const runOcr = async (file: File) => {
     setLoading(true);
+    setPendingFiles(prev => prev.slice(1));
+    const shouldDisplayNow = !result;
+    if (shouldDisplayNow) {
+      setCurrentFileName(file.name);
+    }
     try {
       const response = await axios.post<UploadResult>(`${API_URL}/upload`, {
         filename: file.name,
         content_type: file.type || undefined,
         data_base64: await fileToBase64(file),
-      });
-      setResult(response.data);
+      }, requestConfig);
+      if (shouldDisplayNow) {
+        setResult(response.data);
+        setCurrentFileName(response.data.filename || file.name);
+      } else {
+        setPrefetchedResults(prev => [...prev, response.data]);
+      }
       const suggested = response.data?.extracted_data?.category;
-      if (suggested && CATEGORY_OPTIONS.includes(suggested)) {
+      if (shouldDisplayNow && suggested && categoryOptions.includes(suggested)) {
         setCategory(suggested);
         setCategoryWasSuggested(true);
-      } else {
+      } else if (shouldDisplayNow) {
         setCategory(DEFAULT_CATEGORY);
         setCategoryWasSuggested(false);
       }
@@ -393,33 +608,164 @@ export default function App() {
       const msg = getErrorMessage(error, 'Upload failed');
       pushToast({ message: `${file.name}: ${msg}`, tone: 'danger', duration: 5000 });
       setAnnouncement(`Upload failed: ${msg}`);
-      // Drop the failed file from the queue and try the next one
-      setPendingFiles(prev => prev.slice(1));
     } finally {
       setLoading(false);
     }
   };
 
-  // Auto-process queue head whenever it's ready and nothing is in flight
   useEffect(() => {
-    if (!loading && !result && pendingFiles.length > 0) {
+    if (!loading && pendingFiles.length > 0) {
       runOcr(pendingFiles[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingFiles, loading, result]);
+  }, [pendingFiles, loading]);
 
   const skipCurrent = () => {
     setResult(null);
     setCategoryWasSuggested(false);
-    setPendingFiles(prev => prev.slice(1));
+    setCurrentFileName(null);
     setAnnouncement('Skipped');
   };
 
   const clearQueue = () => {
     setPendingFiles([]);
+    setPrefetchedResults([]);
     setResult(null);
+    setCurrentFileName(null);
     setCategoryWasSuggested(false);
     setAnnouncement('Queue cleared');
+  };
+
+  const addCustomCategory = () => {
+    const nextCategory = categoryDraft.trim();
+    if (!nextCategory) return;
+    setCustomCategories(prev => prev.includes(nextCategory) ? prev : [...prev, nextCategory]);
+    setCategoryDraft('');
+    setAnnouncement(`Added category ${nextCategory}`);
+  };
+
+  const removeCustomCategory = (categoryName: string) => {
+    if (BASE_CATEGORY_OPTIONS.includes(categoryName)) return;
+    setCustomCategories(prev => prev.filter(cat => cat !== categoryName));
+    setFilterCategories(prev => prev.filter(cat => cat !== categoryName));
+    if (category === categoryName) {
+      setCategory(DEFAULT_CATEGORY);
+    }
+    setAnnouncement(`Removed category ${categoryName}`);
+  };
+
+  const submitAuth = async (mode: 'sign-in' | 'sign-up') => {
+    const client = supabase;
+    if (!client) {
+      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const email = authEmail.trim();
+      if (!email || !authPassword) {
+        throw new Error('Email and password are required.');
+      }
+      if (mode === 'sign-in') {
+        const { error } = await client.auth.signInWithPassword({ email, password: authPassword });
+        if (error) throw error;
+        setAnnouncement(`Signed in as ${email}`);
+      } else {
+        const { error } = await client.auth.signUp({
+          email,
+          password: authPassword,
+          options: {
+            data: {
+              display_name: authName.trim() || email.split('@')[0],
+            },
+          },
+        });
+        if (error) throw error;
+        setAnnouncement(`Account created for ${email}`);
+        setAuthMode('sign-in');
+      }
+      setAuthPassword('');
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Authentication failed.'));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    const client = supabase;
+    if (!client) {
+      setSession(null);
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const { error } = await client.auth.signOut();
+      if (error) throw error;
+      setSession(null);
+      setAnnouncement('Signed out');
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Sign-out failed.'));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const keepGuestMode = () => {
+    loadOrCreateGuestSessionId();
+    setSession(null);
+    setAnnouncement('Guest session active');
+    setCurrentView('dashboard');
+  };
+
+  const setThemeAndPersist = (nextTheme: ThemePreference) => {
+    setThemePreference(nextTheme);
+    applyThemePreference(nextTheme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // ignore storage failures
+    }
+  };
+
+  const saveAccountSettings = async () => {
+    setAccountBusy(true);
+    setAccountError(null);
+    try {
+      const payload: AccountSettingsPayload = {
+        display_name: accountDraft.displayName.trim() || null,
+        email: accountDraft.email.trim() || null,
+        avatar_url: accountDraft.avatarUrl.trim() || null,
+        currency: accountDraft.currency || DEFAULT_CURRENCY,
+        theme: themePreference,
+        custom_categories: customCategories,
+      };
+      await axios.put(`${API_URL}/account-settings`, payload, requestConfig);
+      const client = supabase;
+      if (session?.user && client) {
+        const metadata = {
+          display_name: payload.display_name || '',
+          avatar_url: payload.avatar_url || '',
+          currency: payload.currency || DEFAULT_CURRENCY,
+          theme: payload.theme || 'system',
+          custom_categories: payload.custom_categories || [],
+        };
+        await client.auth.updateUser({
+          ...(payload.email && payload.email !== session.user.email ? { email: payload.email } : {}),
+          data: metadata,
+        });
+      }
+      setAnnouncement('Account settings saved');
+      if (payload.email) setAuthEmail(payload.email);
+      if (payload.theme) setThemePreference(payload.theme);
+    } catch (error) {
+      setAccountError(getErrorMessage(error, 'Unable to save account settings.'));
+    } finally {
+      setAccountBusy(false);
+    }
   };
 
   const saveExpense = async () => {
@@ -444,13 +790,12 @@ export default function App() {
         items: result.extracted_data.items || [],
         image_path: result.image_path || null,
       };
-      await axios.post(`${API_URL}/expenses`, payload);
+      await axios.post(`${API_URL}/expenses`, payload, requestConfig);
       saveToStorage(LAST_RECEIPT_CURRENCY_KEY, sourceCurrency);
       setLastReceiptCurrency(sourceCurrency);
       setResult(null);
+      setCurrentFileName(null);
       setCategoryWasSuggested(false);
-      // pop the saved file off the queue; the effect picks up the next one
-      setPendingFiles(prev => prev.slice(1));
       pushToast({ message: `Saved ${payload.vendor || 'receipt'}.`, tone: 'accent' });
       fetchExpenses();
     } catch (error) {
@@ -498,7 +843,7 @@ export default function App() {
       items: editDraft.items || [],
     };
     try {
-      await axios.put(`${API_URL}/expenses/${editDraft.id}`, payload);
+      await axios.put(`${API_URL}/expenses/${editDraft.id}`, payload, requestConfig);
       setExpenses(prev => prev.map(item => item.id === editDraft.id ? { ...item, ...payload } : item));
       setSelectedExpense(prev => prev && prev.id === editDraft.id ? { ...prev, ...payload } : prev);
       setEditDraft(null);
@@ -555,7 +900,7 @@ export default function App() {
     const timer = setTimeout(async () => {
       deletionTimers.current.delete(exp.id);
       try {
-        await axios.delete(`${API_URL}/expenses/${exp.id}`);
+        await axios.delete(`${API_URL}/expenses/${exp.id}`, requestConfig);
       } catch (error) {
         console.error('Delete failed', error);
         // restore on failure so the user isn't silently lying to
@@ -595,6 +940,17 @@ export default function App() {
     );
   };
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] flex items-center justify-center px-6">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-5 h-5 text-[var(--color-accent)] animate-spin" />
+          <p className="font-body text-sm text-[var(--color-soft-charcoal)]">Loading session…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
       <div className="grid grid-cols-1 lg:grid-cols-12 min-h-screen mx-auto" style={{ maxWidth: 'var(--width-max)' }}>
@@ -605,10 +961,26 @@ export default function App() {
             <span className="display-italic text-3xl">Smart</span>
             <span className="font-body text-sm font-medium tracking-[0.1em] uppercase text-[var(--color-mid-ash)]">Spend</span>
           </div>
+          <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-4 space-y-3" style={{ borderRadius: 'var(--radius-md)' }}>
+            <p className="micro-label">Session</p>
+            <div className="flex items-center gap-3">
+              <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="font-body text-sm font-medium text-[var(--color-deep-graphite)] truncate">{identityLabel}</p>
+                <p className="font-body text-xs text-[var(--color-mid-ash)] italic truncate">
+                  {isSignedIn ? 'Signed in account' : 'Guest mode'}
+                </p>
+              </div>
+            </div>
+            <button onClick={() => setCurrentView('account')} className="btn-quiet btn--sm w-full">
+              Manage account
+            </button>
+          </div>
           <div className="flex flex-wrap sm:flex-nowrap lg:flex-col gap-3 sm:gap-6 lg:gap-2 lg:mt-6">
             {navItem('dashboard', 'Dashboard', LayoutDashboard)}
             {navItem('analytics', 'Analytics', BarChart3)}
             {navItem('history', 'Receipts', History)}
+            {navItem('account', 'Account', CircleUserRound)}
           </div>
         </nav>
 
@@ -651,7 +1023,7 @@ export default function App() {
                         <div className="flex flex-col items-center gap-3">
                           <Loader2 className="w-8 h-8 text-[var(--color-accent)] animate-spin" />
                           <p className="font-body text-sm text-[var(--color-soft-charcoal)] italic truncate max-w-[180px] sm:max-w-[260px]">
-                            Reading {pendingFiles[0]?.name || 'receipt'}…
+                            Reading {currentFileName || pendingFiles[0]?.name || 'receipt'}…
                           </p>
                         </div>
                       ) : pendingFiles.length > 0 ? (
@@ -685,9 +1057,9 @@ export default function App() {
                     </label>
 
                     <div className="mt-6 space-y-4">
-                      {pendingFiles.length > 1 && (
+                      {queueRemainingCount > 0 && (
                         <button onClick={clearQueue} className="btn-quiet btn--sm w-full">
-                          Clear queue ({pendingFiles.length})
+                          Clear queue ({queueRemainingCount})
                         </button>
                       )}
 
@@ -713,11 +1085,11 @@ export default function App() {
                           <div className="flex flex-wrap items-baseline gap-3 mb-6">
                             <p className="micro-label">Review</p>
                             <span className="font-mono text-xs text-[var(--color-mid-ash)]">
-                              {pendingFiles.length > 1
-                                ? `1 of ${pendingFiles.length} · ${pendingFiles.length - 1} remaining`
+                              {queueRemainingCount > 0
+                                ? `${currentFileName || 'current file'} · ${queueRemainingCount} queued`
                                 : 'awaiting save'}
                             </span>
-                            {pendingFiles.length > 1 && (
+                            {queueRemainingCount > 0 && (
                               <button onClick={skipCurrent} className="btn-text ml-auto">Skip</button>
                             )}
                           </div>
@@ -728,7 +1100,7 @@ export default function App() {
                                 <embed src={getReceiptUrl(result.image_path)} type="application/pdf" className="w-full h-64" />
                               ) : (
                                 <a href={getReceiptUrl(result.image_path)} target="_blank" rel="noreferrer" className="block">
-                                  <img src={getReceiptUrl(result.image_path)} alt={pendingFiles[0]?.name || 'Receipt'} className="max-h-64 object-contain mx-auto" />
+                                  <img src={getReceiptUrl(result.image_path)} alt={currentFileName || pendingFiles[0]?.name || 'Receipt'} className="max-h-64 object-contain mx-auto" />
                                 </a>
                               )}
                             </div>
@@ -780,7 +1152,7 @@ export default function App() {
                                     onChange={(e) => { setCategory(e.target.value); setCategoryWasSuggested(false); }}
                                     className="input-editorial appearance-none pr-10"
                                   >
-                                    {CATEGORY_OPTIONS.map(opt => (
+                                    {categoryOptions.map(opt => (
                                       <option key={opt}>{opt}</option>
                                     ))}
                                   </select>
@@ -1109,6 +1481,253 @@ export default function App() {
                     )}
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {currentView === 'account' && (
+              <motion.div
+                key="account"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="px-4 sm:px-6 lg:px-12 py-10 sm:py-14 lg:py-20 mx-auto"
+                style={{ maxWidth: 'var(--width-content)' }}
+              >
+                <header className="mb-12 sm:mb-16 lg:mb-20">
+                  <p className="micro-label mb-4">Account · Access & preferences</p>
+                  <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Your space.</h1>
+                  <p className="title-italic mt-4 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)' }}>
+                    {isSignedIn ? 'Manage your signed-in session, theme, and categories.' : 'Use guest mode or sign in with Supabase Auth.'}
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  <section className="lg:col-span-6">
+                    <p className="micro-label mb-6">Session</p>
+                    <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-6" style={{ borderRadius: 'var(--radius-lg)' }}>
+                      {isSignedIn ? (
+                        <>
+                          <div className="space-y-2">
+                            <p className="font-body text-sm text-[var(--color-mid-ash)]">Signed in as</p>
+                            <p className="headline text-2xl text-[var(--color-deep-graphite)]">{identityLabel}</p>
+                            <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
+                              {session?.user?.email || 'No email available'}
+                            </p>
+                          </div>
+                          <button onClick={signOut} disabled={authBusy} className="btn-primary">
+                            <LogOut className="w-4 h-4" />
+                            {authBusy ? 'Signing out…' : 'Sign out'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 text-[var(--color-soft-charcoal)]">
+                            <ShieldCheck className="w-4 h-4 text-[var(--color-accent)]" />
+                            <p className="font-body text-sm">Guest mode is active for this browser.</p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setAuthMode('sign-in')}
+                              className={`btn-quiet btn--sm ${authMode === 'sign-in' ? 'is-active' : ''}`}
+                            >
+                              <LogIn className="w-4 h-4" />
+                              Sign in
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAuthMode('sign-up')}
+                              className={`btn-quiet btn--sm ${authMode === 'sign-up' ? 'is-active' : ''}`}
+                            >
+                              Create account
+                            </button>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <label className="micro-label block mb-2">Email</label>
+                              <input
+                                value={authEmail}
+                                onChange={(e) => setAuthEmail(e.target.value)}
+                                type="email"
+                                autoComplete="email"
+                                className="input-editorial"
+                              />
+                            </div>
+                            {authMode === 'sign-up' && (
+                              <div>
+                                <label className="micro-label block mb-2">Display name</label>
+                                <input
+                                  value={authName}
+                                  onChange={(e) => setAuthName(e.target.value)}
+                                  type="text"
+                                  autoComplete="nickname"
+                                  className="input-editorial"
+                                />
+                              </div>
+                            )}
+                            <div>
+                              <label className="micro-label block mb-2">Password</label>
+                              <input
+                                value={authPassword}
+                                onChange={(e) => setAuthPassword(e.target.value)}
+                                type="password"
+                                autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'}
+                                className="input-editorial"
+                              />
+                            </div>
+                          </div>
+
+                          {authError && (
+                            <p className="font-body text-sm text-[var(--color-accent)]">{authError}</p>
+                          )}
+
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              onClick={() => submitAuth(authMode)}
+                              disabled={authBusy}
+                              className="btn-primary"
+                            >
+                              {authMode === 'sign-in' ? <LogIn className="w-4 h-4" /> : <CircleUserRound className="w-4 h-4" />}
+                              {authBusy ? 'Working…' : (authMode === 'sign-in' ? 'Sign in' : 'Create account')}
+                            </button>
+                            <button onClick={keepGuestMode} className="btn-quiet">
+                              Keep guest mode
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="lg:col-span-6 space-y-8">
+                    <div>
+                      <p className="micro-label mb-6">Profile</p>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
+                        <div>
+                          <label className="micro-label block mb-2">Display name</label>
+                          <input
+                            value={accountDraft.displayName}
+                            onChange={(e) => setAccountDraft(prev => ({ ...prev, displayName: e.target.value }))}
+                            className="input-editorial"
+                          />
+                        </div>
+                        <div>
+                          <label className="micro-label block mb-2">Email</label>
+                          <input
+                            value={accountDraft.email}
+                            onChange={(e) => setAccountDraft(prev => ({ ...prev, email: e.target.value }))}
+                            type="email"
+                            autoComplete="email"
+                            className="input-editorial"
+                          />
+                        </div>
+                        <div>
+                          <label className="micro-label block mb-2">Avatar URL</label>
+                          <input
+                            value={accountDraft.avatarUrl}
+                            onChange={(e) => setAccountDraft(prev => ({ ...prev, avatarUrl: e.target.value }))}
+                            type="url"
+                            className="input-editorial"
+                            placeholder="https://..."
+                          />
+                        </div>
+                        <div>
+                          <label className="micro-label block mb-2">Currency</label>
+                          <input
+                            value={accountDraft.currency}
+                            onChange={(e) => setAccountDraft(prev => ({ ...prev, currency: e.target.value.toUpperCase() }))}
+                            className="input-editorial"
+                            maxLength={3}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="micro-label mb-6">Theme</p>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
+                        <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
+                          Auto follows your device theme. You can force light or dark anytime.
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {([
+                            ['system', 'Auto', Monitor],
+                            ['light', 'Light', SunMedium],
+                            ['dark', 'Dark', MoonStar],
+                          ] as const).map(([value, label, Icon]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setThemeAndPersist(value)}
+                              className={`btn-quiet justify-start ${themePreference === value ? 'is-active' : ''}`}
+                              aria-pressed={themePreference === value}
+                            >
+                              <Icon className="w-4 h-4" />
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="micro-label mb-6">Categories</p>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-5" style={{ borderRadius: 'var(--radius-lg)' }}>
+                        <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
+                          Add or remove expense categories. The receipt form uses this list immediately.
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <input
+                            value={categoryDraft}
+                            onChange={(e) => setCategoryDraft(e.target.value)}
+                            className="input-editorial"
+                            placeholder="Add a category"
+                          />
+                          <button type="button" onClick={addCustomCategory} className="btn-primary">
+                            Add
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {categoryOptions.map((cat) => {
+                            const removable = !BASE_CATEGORY_OPTIONS.includes(cat);
+                            return (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => removable ? removeCustomCategory(cat) : undefined}
+                                className={`btn-quiet btn--sm ${removable ? '' : 'is-active'}`}
+                                aria-label={removable ? `Remove ${cat}` : `${cat} is built in`}
+                              >
+                                {cat}
+                                {removable && <span aria-hidden="true">×</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {accountError && (
+                      <p className="font-body text-sm text-[var(--color-accent)]">{accountError}</p>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
+                      <button type="button" onClick={saveAccountSettings} disabled={accountBusy} className="btn-primary">
+                        {accountBusy ? 'Saving…' : 'Save profile & preferences'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => loadAccountSettings()}
+                        className="btn-quiet"
+                      >
+                        Reload settings
+                      </button>
+                    </div>
+                  </section>
+                </div>
               </motion.div>
             )}
 
@@ -1486,7 +2105,7 @@ export default function App() {
                         value={editDraft.category}
                         onChange={(e) => setEditDraft(d => d ? { ...d, category: e.target.value } : d)}
                       >
-                        {Array.from(new Set([...CATEGORY_OPTIONS, editDraft.category])).map(opt => (
+                        {Array.from(new Set([...categoryOptions, editDraft.category])).map(opt => (
                           <option key={opt}>{opt}</option>
                         ))}
                       </select>

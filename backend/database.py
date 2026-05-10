@@ -34,6 +34,20 @@ class Expense(Base):
     item_warning = Column(String)
     items_json = Column(String)
     image_path = Column(String)
+    owner_id = Column(String, index=True)
+
+
+class AccountSettings(Base):
+    __tablename__ = "account_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(String, unique=True, index=True)
+    display_name = Column(String)
+    email = Column(String)
+    avatar_url = Column(String)
+    currency = Column(String, default="INR")
+    theme = Column(String, default="system")
+    custom_categories_json = Column(String)
 
 Base.metadata.create_all(bind=engine)
 
@@ -60,6 +74,27 @@ with engine.begin() as connection:
         WHERE image_path IS NOT NULL AND image_path != ''
         """
     )
+    connection.exec_driver_sql(
+        """
+        DELETE FROM account_settings
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (PARTITION BY owner_id ORDER BY id) AS rn
+                FROM account_settings
+                WHERE owner_id IS NOT NULL AND owner_id != ''
+            ) dedupe
+            WHERE rn > 1
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_account_settings_owner_id
+        ON account_settings (owner_id)
+        WHERE owner_id IS NOT NULL AND owner_id != ''
+        """
+    )
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     with engine.begin() as connection:
@@ -82,3 +117,46 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN items_json TEXT")
         if "image_path" not in columns:
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN image_path VARCHAR")
+        if "owner_id" not in columns:
+            connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN owner_id VARCHAR")
+        account_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(account_settings)").fetchall()}
+        if not account_columns:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS account_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_id VARCHAR,
+                    display_name VARCHAR,
+                    email VARCHAR,
+                    avatar_url VARCHAR,
+                    currency VARCHAR DEFAULT 'INR',
+                    theme VARCHAR DEFAULT 'system',
+                    custom_categories_json TEXT
+                )
+                """
+            )
+        else:
+            if "display_name" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN display_name VARCHAR")
+            if "email" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN email VARCHAR")
+            if "avatar_url" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN avatar_url VARCHAR")
+            if "currency" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN currency VARCHAR DEFAULT 'INR'")
+            if "theme" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN theme VARCHAR DEFAULT 'system'")
+            if "custom_categories_json" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN custom_categories_json TEXT")
+            if "owner_id" not in account_columns:
+                connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN owner_id VARCHAR")
+else:
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS owner_id VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS display_name VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS email VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS avatar_url VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'INR'")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS theme VARCHAR DEFAULT 'system'")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS custom_categories_json TEXT")
+        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS owner_id VARCHAR")

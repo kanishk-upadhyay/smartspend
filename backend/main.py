@@ -15,10 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
-from database import SessionLocal, Expense
+from database import SessionLocal, Expense, AccountSettings
 from ocr_utils import ocr_engine
 from gemini_extractor import ReceiptExtractionError
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 
 ALLOWED_UPLOAD_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".pdf", ".heic", ".heif"}
@@ -39,6 +39,8 @@ SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "receipts")
 SUPABASE_PUBLIC_PREFIX = (
     f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}" if SUPABASE_URL else ""
 )
+SUPABASE_AUTH_USER_URL = f"{SUPABASE_URL}/auth/v1/user" if SUPABASE_URL else ""
+SUPABASE_ADMIN_USER_URL = f"{SUPABASE_URL}/auth/v1/admin/users" if SUPABASE_URL else ""
 
 if bool(SUPABASE_URL) != bool(SUPABASE_KEY):
     raise RuntimeError("SUPABASE_URL and SUPABASE_KEY must both be set together.")
@@ -79,6 +81,140 @@ def _validate_image_path(image_path: str) -> None:
             raise HTTPException(status_code=400, detail="Invalid remote image_path")
         return
     _safe_upload_path(image_path)
+
+
+def _normalize_theme(theme: Optional[str]) -> str:
+    if theme in {"light", "dark", "system"}:
+        return theme
+    return "system"
+
+
+def _normalize_categories(categories: Optional[list]) -> list[str]:
+    if not categories:
+        return []
+    seen = set()
+    normalized: list[str] = []
+    for value in categories:
+        category = str(value).strip()
+        if not category or category in seen:
+            continue
+        seen.add(category)
+        normalized.append(category)
+    return normalized
+
+
+def _auth_headers(auth_header: str) -> dict[str, str]:
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": auth_header,
+    }
+
+
+def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
+    auth_header = request.headers.get("authorization", "").strip()
+    guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
+
+    if auth_header and SUPABASE_URL and SUPABASE_KEY:
+        try:
+            response = httpx.get(
+                SUPABASE_AUTH_USER_URL,
+                headers=_auth_headers(auth_header),
+                timeout=10.0,
+            )
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail="Could not validate Supabase session.") from exc
+        if response.status_code == 200:
+            user = response.json()
+            user_id = user.get("id")
+            if user_id:
+                return user_id, "auth", user
+        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+
+    if guest_id:
+        return guest_id, "guest", None
+
+    raise HTTPException(status_code=401, detail="Sign in or provide a guest session.")
+
+
+def _sync_supabase_user_metadata(user_id: str, settings: "AccountSettings") -> None:
+    if not (SUPABASE_ADMIN_USER_URL and SUPABASE_KEY):
+        return
+
+    payload = {
+        "email": settings.email,
+        "user_metadata": {
+            "display_name": settings.display_name,
+            "avatar_url": settings.avatar_url,
+            "currency": settings.currency,
+            "theme": settings.theme,
+            "custom_categories": json.loads(settings.custom_categories_json or "[]"),
+        },
+    }
+    try:
+        response = httpx.put(
+            f"{SUPABASE_ADMIN_USER_URL}/{user_id}",
+            json=payload,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10.0,
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Could not update Supabase account metadata.") from exc
+
+    if response.status_code >= 300:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase account update failed ({response.status_code}): {response.text}",
+        )
+
+
+def _claim_legacy_rows(db, owner_id: str) -> None:
+    has_owned_expenses = db.query(Expense.id).filter(Expense.owner_id == owner_id).first() is not None
+    has_owned_settings = db.query(AccountSettings.id).filter(AccountSettings.owner_id == owner_id).first() is not None
+
+    if not has_owned_expenses:
+        legacy_expenses = (
+            db.query(Expense)
+            .filter(Expense.owner_id.is_(None))
+            .order_by(Expense.id.asc())
+            .all()
+        )
+        for expense in legacy_expenses:
+            expense.owner_id = owner_id
+
+    if not has_owned_settings:
+        legacy_settings = (
+            db.query(AccountSettings)
+            .filter(AccountSettings.owner_id.is_(None))
+            .order_by(AccountSettings.id.asc())
+            .all()
+        )
+        if legacy_settings:
+            primary, *extras = legacy_settings
+            primary.owner_id = owner_id
+            for extra in extras:
+                db.delete(extra)
+    db.commit()
+
+
+def _settings_payload(settings: AccountSettings) -> AccountSettingsResponse:
+    try:
+        categories = json.loads(settings.custom_categories_json or "[]")
+    except Exception:
+        categories = []
+    return AccountSettingsResponse(
+        id=settings.id,
+        owner_id=settings.owner_id,
+        display_name=settings.display_name,
+        email=settings.email,
+        avatar_url=settings.avatar_url,
+        currency=settings.currency or "INR",
+        theme=settings.theme or "system",
+        custom_categories=categories,
+    )
 
 
 def _upload_to_supabase(local_path: str, object_name: str, content_type: str) -> str:
@@ -161,8 +297,7 @@ class ExpenseBase(BaseModel):
 
 class ExpenseResponse(ExpenseBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ExpenseUpdate(BaseModel):
     vendor: Optional[str] = None
@@ -185,6 +320,30 @@ class UploadRequest(BaseModel):
     content_type: Optional[str] = None
     data_base64: str
 
+
+class AccountSettingsBase(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    avatar_url: Optional[str] = None
+    currency: str = "INR"
+    theme: str = "system"
+    custom_categories: Optional[list[str]] = None
+
+
+class AccountSettingsResponse(AccountSettingsBase):
+    id: int
+    owner_id: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountSettingsUpdate(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    avatar_url: Optional[str] = None
+    currency: Optional[str] = None
+    theme: Optional[str] = None
+    custom_categories: Optional[list[str]] = None
+
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -199,27 +358,132 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 def read_health():
     return {"message": "SmartSpend API is running"}
 
-@app.get("/expenses", response_model=List[ExpenseResponse])
-def list_expenses():
+@app.get("/account-settings", response_model=AccountSettingsResponse)
+def get_account_settings(request: Request):
+    owner_id, _, auth_user = _resolve_identity(request)
     db = SessionLocal()
-    expenses = db.query(Expense).all()
+    _claim_legacy_rows(db, owner_id)
+    settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
+    if settings is None:
+        metadata = (auth_user or {}).get("user_metadata", {})
+        settings = AccountSettings(
+            owner_id=owner_id,
+            display_name=metadata.get("display_name"),
+            email=(auth_user or {}).get("email"),
+            avatar_url=metadata.get("avatar_url"),
+            currency=metadata.get("currency") or "INR",
+            theme=metadata.get("theme") or "system",
+            custom_categories_json=json.dumps(metadata.get("custom_categories") or []),
+        )
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    db.close()
+    return _settings_payload(settings)
+
+
+@app.put("/account-settings", response_model=AccountSettingsResponse)
+def update_account_settings(request: Request, payload: AccountSettingsUpdate):
+    owner_id, identity_type, auth_user = _resolve_identity(request)
+    db = SessionLocal()
+    _claim_legacy_rows(db, owner_id)
+    settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
+    if settings is None:
+        settings = AccountSettings(owner_id=owner_id)
+        db.add(settings)
+
+    update_data = payload.dict(exclude_unset=True)
+    if "display_name" in update_data:
+        settings.display_name = update_data["display_name"]
+    if "email" in update_data:
+        settings.email = update_data["email"]
+    if "avatar_url" in update_data:
+        settings.avatar_url = update_data["avatar_url"]
+    if "currency" in update_data and update_data["currency"]:
+        settings.currency = update_data["currency"]
+    if "theme" in update_data:
+        settings.theme = _normalize_theme(update_data["theme"])
+    if "custom_categories" in update_data:
+        settings.custom_categories_json = json.dumps(_normalize_categories(update_data["custom_categories"]))
+    elif settings.custom_categories_json is None:
+        settings.custom_categories_json = json.dumps([])
+
+    db.commit()
+    db.refresh(settings)
+    if identity_type == "auth":
+        _sync_supabase_user_metadata(owner_id, settings)
+    db.close()
+    return _settings_payload(settings)
+
+
+@app.post("/account-migrate-guest", response_model=AccountSettingsResponse)
+def migrate_guest_account(request: Request):
+    owner_id, identity_type, auth_user = _resolve_identity(request)
+    guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
+    if not guest_id:
+        raise HTTPException(status_code=400, detail="Guest id required for migration")
+    if owner_id == guest_id:
+        raise HTTPException(status_code=400, detail="Guest and account identity must differ for migration")
+    if identity_type != "auth":
+        raise HTTPException(status_code=401, detail="Sign in required for guest migration")
+
+    db = SessionLocal()
+    guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
+    account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
+    db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+
+    if account_settings is None:
+        account_settings = AccountSettings(owner_id=owner_id)
+        db.add(account_settings)
+
+    if guest_settings is not None:
+        if not account_settings.display_name:
+            account_settings.display_name = guest_settings.display_name
+        if not account_settings.email:
+            account_settings.email = guest_settings.email or (auth_user or {}).get("email")
+        if not account_settings.avatar_url:
+            account_settings.avatar_url = guest_settings.avatar_url
+        if not account_settings.currency:
+            account_settings.currency = guest_settings.currency or "INR"
+        if not account_settings.theme:
+            account_settings.theme = guest_settings.theme or "system"
+        if not account_settings.custom_categories_json:
+            account_settings.custom_categories_json = guest_settings.custom_categories_json
+        db.delete(guest_settings)
+
+    db.commit()
+    db.refresh(account_settings)
+    _sync_supabase_user_metadata(owner_id, account_settings)
+    db.close()
+    return _settings_payload(account_settings)
+
+
+@app.get("/expenses", response_model=List[ExpenseResponse])
+def list_expenses(request: Request):
+    owner_id, _, _ = _resolve_identity(request)
+    db = SessionLocal()
+    _claim_legacy_rows(db, owner_id)
+    expenses = db.query(Expense).filter(Expense.owner_id == owner_id).all()
     for expense in expenses:
         _attach_items(expense)
     db.close()
     return expenses
 
 @app.post("/expenses", response_model=ExpenseResponse)
-def create_expense(expense: ExpenseBase):
+def create_expense(request: Request, expense: ExpenseBase):
+    owner_id, _, _ = _resolve_identity(request)
     db = SessionLocal()
+    _claim_legacy_rows(db, owner_id)
     if expense.image_path:
         _validate_image_path(expense.image_path)
-        existing = db.query(Expense).filter(Expense.image_path == expense.image_path).first()
+        existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
         if existing is not None:
             _attach_items(existing)
             db.close()
             return existing
 
     payload = expense.dict(exclude={"items"})
+    payload["owner_id"] = owner_id
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
     db.add(db_expense)
@@ -228,7 +492,7 @@ def create_expense(expense: ExpenseBase):
     except IntegrityError:
         db.rollback()
         if expense.image_path:
-            existing = db.query(Expense).filter(Expense.image_path == expense.image_path).first()
+            existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
             if existing is not None:
                 _attach_items(existing)
                 db.close()
@@ -241,9 +505,10 @@ def create_expense(expense: ExpenseBase):
     return db_expense
 
 @app.put("/expenses/{expense_id}", response_model=ExpenseResponse)
-def update_expense(expense_id: int, expense: ExpenseUpdate):
+def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate):
+    owner_id, _, _ = _resolve_identity(request)
     db = SessionLocal()
-    db_expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.owner_id == owner_id).first()
     if db_expense is None:
         db.close()
         raise HTTPException(status_code=404, detail="Expense not found")
@@ -264,9 +529,10 @@ def update_expense(expense_id: int, expense: ExpenseUpdate):
     return db_expense
 
 @app.delete("/expenses/{expense_id}")
-def delete_expense(expense_id: int):
+def delete_expense(expense_id: int, request: Request):
+    owner_id, _, _ = _resolve_identity(request)
     db = SessionLocal()
-    db_expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.owner_id == owner_id).first()
     if db_expense is None:
         db.close()
         raise HTTPException(status_code=404, detail="Expense not found")
