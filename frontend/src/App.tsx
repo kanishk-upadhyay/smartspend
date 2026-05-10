@@ -169,6 +169,7 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
   const deletionTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const saveLockRef = useRef(false);
 
   const availableCategories = useMemo(() => {
     const s = Array.from(new Set(expenses.map(e => e.category))).sort();
@@ -183,8 +184,11 @@ export default function App() {
 
   const fetchExpenses = async () => {
     try {
-      const response = await axios.get(`${API_URL}/expenses`);
-      setExpenses(response.data.reverse());
+      const response = await axios.get<Expense[]>(`${API_URL}/expenses`);
+      const uniqueExpenses = Array.from(
+        new Map(response.data.map((expense: Expense) => [expense.id, expense])).values()
+      ).reverse() as Expense[];
+      setExpenses(uniqueExpenses);
     } catch (error) {
       console.error('Fetch failed:', error);
       setAnnouncement(`Unable to load expenses: ${getErrorMessage(error, 'Unknown error')}`);
@@ -405,7 +409,8 @@ export default function App() {
   };
 
   const saveExpense = async () => {
-    if (!result || isSaving) return;
+    if (!result || isSaving || saveLockRef.current) return;
+    saveLockRef.current = true;
     setIsSaving(true);
     try {
       const sourceCurrency = result.extracted_data.source_currency || DEFAULT_CURRENCY;
@@ -440,6 +445,7 @@ export default function App() {
       setAnnouncement(`Unable to save expense: ${getErrorMessage(error, 'Unknown error')}`);
     } finally {
       setIsSaving(false);
+      saveLockRef.current = false;
     }
   };
 
@@ -863,6 +869,7 @@ export default function App() {
                             </div>
 
                             <button
+                              type="button"
                               onClick={saveExpense}
                               disabled={isSaving}
                               className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed"
