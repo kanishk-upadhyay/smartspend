@@ -102,15 +102,28 @@ interface AccountSettingsPayload {
 
 // Editorial palette — magenta carries the one-voice rule. Pie slices step through a
 // single-hue tonal scale (graphite → ash) with magenta only on the leading slice.
-const SLICE_COLORS = [
+const SLICE_COLORS_LIGHT = [
   'oklch(60% 0.25 350)',
   'oklch(25% 0 0)',
   'oklch(40% 0 0)',
   'oklch(55% 0 0)',
   'oklch(70% 0 0)',
 ];
-const ACCENT = 'oklch(60% 0.25 350)';
-const TEXT_DIM = 'oklch(55% 0 0)';
+const SLICE_COLORS_DARK = [
+  'oklch(58% 0.22 350)',
+  'oklch(65% 0 0)',
+  'oklch(55% 0 0)',
+  'oklch(40% 0 0)',
+  'oklch(28% 0 0)',
+];
+const ACCENT_LIGHT = 'oklch(60% 0.25 350)';
+const ACCENT_DARK = 'oklch(58% 0.22 350)';
+const TEXT_DIM_LIGHT = 'oklch(55% 0 0)';
+const TEXT_DIM_DARK = 'oklch(78% 0 0)';
+const GRID_STROKE_LIGHT = 'oklch(92% 0 0)';
+const GRID_STROKE_DARK = 'oklch(28% 0 0)';
+const TOOLTIP_FILL_LIGHT = 'oklch(92% 0 0 / 0.4)';
+const TOOLTIP_FILL_DARK = 'oklch(28% 0 0 / 0.4)';
 
 const DEFAULT_CURRENCY = 'INR';
 const DEFAULT_CATEGORY = 'General';
@@ -253,6 +266,14 @@ export default function App() {
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const isGuestSession = !session?.user;
+
+  // Theme-aware chart colors
+  const isDarkTheme = themePreference === 'dark' || (themePreference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const SLICE_COLORS = isDarkTheme ? SLICE_COLORS_DARK : SLICE_COLORS_LIGHT;
+  const ACCENT = isDarkTheme ? ACCENT_DARK : ACCENT_LIGHT;
+  const TEXT_DIM = isDarkTheme ? TEXT_DIM_DARK : TEXT_DIM_LIGHT;
+  const GRID_STROKE = isDarkTheme ? GRID_STROKE_DARK : GRID_STROKE_LIGHT;
+  const TOOLTIP_FILL = isDarkTheme ? TOOLTIP_FILL_DARK : TOOLTIP_FILL_LIGHT;
 
   const availableCategories = useMemo(() => {
     const s = Array.from(new Set(expenses.map(e => e.category))).sort();
@@ -1416,7 +1437,7 @@ export default function App() {
                         <div className="h-[280px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
                             <BarChart data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="oklch(92% 0 0)" />
+                              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="label"
                                 axisLine={false}
@@ -1431,8 +1452,8 @@ export default function App() {
                                 dx={-8}
                               />
                               <RechartsTooltip
-                                cursor={{ fill: 'oklch(92% 0 0 / 0.4)' }}
-                                contentStyle={{ backgroundColor: 'var(--color-crisp-paper-white)', border: '1px solid var(--color-paper-mist)', borderRadius: '4px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
+                                cursor={{ fill: TOOLTIP_FILL }}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
                                 labelFormatter={(label, payload) => {
                                   const item = (payload as readonly { payload?: { date?: string } }[])[0]?.payload;
                                   return item?.date || String(label);
