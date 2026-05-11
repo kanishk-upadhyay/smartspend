@@ -26,6 +26,10 @@
   --color-border:    var(--color-paper-mist);
   --color-accent:    var(--color-editorial-magenta);
   --color-accent-dim: var(--color-magenta-whisper);
+  --color-error:     oklch(55% 0.25 10);
+  --color-error-bg:  oklch(95% 0.08 10);
+  --color-warning:   oklch(58% 0.23 55);
+  --color-warning-bg: oklch(95% 0.1 55);
 
   /* ── Typography families ── */
   --font-display: 'Cormorant Garamond', Georgia, serif;
@@ -72,4 +76,8 @@ html[data-theme="dark"] {
   --color-border:    oklch(32% 0.01 350);
   --color-accent:    oklch(58% 0.22 350);
   --color-accent-dim: oklch(58% 0.22 350 / 0.12);
+  --color-error:     oklch(70% 0.23 10);
+  --color-error-bg:  oklch(30% 0.1 10);
+  --color-warning:   oklch(72% 0.22 55);
+  --color-warning-bg: oklch(32% 0.1 55);
 }

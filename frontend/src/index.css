@@ -64,6 +64,11 @@
     outline-offset: 2px;
   }
 
+  html[data-theme="dark"] :focus-visible {
+    outline-color: oklch(65% 0.25 350);
+    box-shadow: 0 0 0 4px oklch(65% 0.25 350 / 0.15);
+  }
+
   ::selection {
     background-color: var(--color-magenta-veil);
     color: var(--color-deep-graphite);
@@ -174,6 +179,8 @@
 .btn-quiet.is-active {
   color: var(--color-accent);
   border-color: var(--color-accent);
+  background-color: var(--color-accent-dim);
+  font-weight: 600;
 }
 
 .btn-danger {
@@ -182,7 +189,7 @@
   justify-content: center;
   gap: 0.5rem;
   padding: var(--spacing-sm) var(--spacing-xl);
-  background-color: oklch(55% 0.20 25);
+  background-color: var(--color-error);
   color: var(--color-crisp-paper-white);
   font-family: var(--font-body);
   font-weight: 500;
@@ -196,7 +203,7 @@
               transform var(--duration-color) var(--ease-out);
 }
 .btn-danger:hover:not(:disabled) {
-  background-color: oklch(45% 0.22 25);
+  background-color: oklch(48% 0.25 10);
   transform: translateY(-2px);
 }
 .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
