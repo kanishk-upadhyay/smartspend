@@ -92,7 +92,7 @@
   font-size: 0.6875rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--color-mid-ash);
+  color: var(--color-muted);
 }
 
 .label {
@@ -142,19 +142,21 @@
   gap: 0.5rem;
   padding: 10px 20px;
   background-color: transparent;
-  color: var(--color-deep-graphite);
+  color: var(--color-text);
   font-family: var(--font-body);
   font-weight: 500;
   font-size: 0.875rem;
-  border: 1px solid var(--color-paper-mist);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color var(--duration-color) var(--ease-out),
-              border-color var(--duration-color) var(--ease-out);
+              border-color var(--duration-color) var(--ease-out),
+              background-color var(--duration-color) var(--ease-out);
 }
 .btn-quiet:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
+  background-color: var(--color-accent-dim);
 }
 .btn-quiet[aria-pressed="true"],
 .btn-quiet.is-active {
@@ -194,7 +196,7 @@
   padding: 4px 0;
   background: transparent;
   border: none;
-  color: var(--color-mid-ash);
+  color: var(--color-muted);
   font-family: var(--font-body);
   font-weight: 500;
   font-size: 0.875rem;
