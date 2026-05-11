@@ -72,7 +72,7 @@ html[data-theme="dark"] {
   --color-bg:        oklch(13% 0.01 350);
   --color-surface:   oklch(18% 0.01 350);
   --color-text:      oklch(95% 0 0);
-  --color-text-dim:  oklch(84% 0.08 60);
+  --color-text-dim:  oklch(90% 0.08 60);
   --color-text-label: oklch(72% 0.10 60);
   --color-muted:     oklch(70% 0.06 180);
   --color-border:    oklch(32% 0.01 350);
