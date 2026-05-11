@@ -1918,7 +1918,7 @@ export default function App() {
               <button
                 type="button"
                 aria-label="Close HEIC help dialog"
-                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                className="absolute inset-0 border-0 bg-black/40 p-0"
                 onClick={() => setShowHeicHelper(false)}
               />
               <div
@@ -1960,7 +1960,7 @@ export default function App() {
               <button
                 type="button"
                 aria-label="Close receipt details dialog"
-                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                className="absolute inset-0 border-0 bg-black/40 p-0"
                 onClick={() => setShowItemsModal(false)}
               />
               <div
@@ -2067,7 +2067,7 @@ export default function App() {
               <button
                 type="button"
                 aria-label="Close edit receipt dialog"
-                className="absolute inset-0 border-0 bg-[var(--color-deep-graphite)]/40 p-0"
+                className="absolute inset-0 border-0 bg-black/40 p-0"
                 onClick={() => setEditDraft(null)}
               />
               <div

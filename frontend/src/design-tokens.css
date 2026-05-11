@@ -92,4 +92,11 @@ html[data-theme="dark"] {
   --color-error-bg:       oklch(26% 0.12 20);
   --color-warning:        oklch(80% 0.22 80);        /* Warning: bright yellow-green */
   --color-warning-bg:     oklch(26% 0.10 80);
+  
+  /* ── Legacy token overrides (for backward compatibility) ── */
+  --color-warm-ash-cream:     oklch(10% 0.01 280);       /* bg equivalent */
+  --color-crisp-paper-white:  oklch(16% 0.01 280);       /* surface equivalent */
+  --color-paper-mist:         oklch(32% 0.02 280);       /* border equivalent */
+  --color-mid-ash:            oklch(62% 0.15 100);       /* muted equivalent */
+  --color-deep-graphite:      oklch(96% 0.02 280);       /* text equivalent */
 }
