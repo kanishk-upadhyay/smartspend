@@ -982,7 +982,7 @@ export default function App() {
             <span className="display-italic text-3xl">Smart</span>
             <span className="font-body text-sm font-medium tracking-[0.1em] uppercase text-[var(--color-mid-ash)]">Spend</span>
           </div>
-          <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-4 space-y-3" style={{ borderRadius: 'var(--radius-md)' }}>
+          <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-4 space-y-3" style={{ borderRadius: 'var(--radius-md)' }}>
             <p className="micro-label">Session</p>
             <div className="flex items-center gap-3">
               <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
@@ -1037,7 +1037,7 @@ export default function App() {
                       onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
                       onDrop={handleDrop}
-                      className={`block relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-12 sm:py-16 lg:py-20 bg-[var(--color-crisp-paper-white)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
+                      className={`block relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-12 sm:py-16 lg:py-20 bg-[var(--color-surface)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
                       style={{ borderRadius: 'var(--radius-md)' }}
                     >
                       {loading ? (
@@ -1392,8 +1392,8 @@ export default function App() {
                                 ))}
                               </Pie>
                               <RechartsTooltip
-                                contentStyle={{ backgroundColor: 'var(--color-crisp-paper-white)', border: '1px solid var(--color-paper-mist)', borderRadius: '4px', padding: '10px 14px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
-                                itemStyle={{ color: 'var(--color-deep-graphite)' }}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', padding: '10px 14px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
+                                itemStyle={{ color: 'var(--color-text)' }}
                                 cursor={false}
                                 formatter={(v: unknown, name: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), String(name)]}
                               />
@@ -1526,7 +1526,7 @@ export default function App() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   <section className="lg:col-span-6">
                     <p className="micro-label mb-6">Session</p>
-                    <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-6" style={{ borderRadius: 'var(--radius-lg)' }}>
+                    <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-6" style={{ borderRadius: 'var(--radius-lg)' }}>
                       {isSignedIn ? (
                         <>
                           <div className="space-y-2">
@@ -1626,7 +1626,7 @@ export default function App() {
                   <section className="lg:col-span-6 space-y-8">
                     <div>
                       <p className="micro-label mb-6">Profile</p>
-                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
                         <div>
                           <label className="micro-label block mb-2">Display name</label>
                           <input
@@ -1669,7 +1669,7 @@ export default function App() {
 
                     <div>
                       <p className="micro-label mb-6">Theme</p>
-                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
                         <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
                           Auto follows your device theme. You can force light or dark anytime.
                         </p>
@@ -1696,7 +1696,7 @@ export default function App() {
 
                     <div>
                       <p className="micro-label mb-6">Categories</p>
-                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-crisp-paper-white)] p-6 sm:p-8 space-y-5" style={{ borderRadius: 'var(--radius-lg)' }}>
+                      <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-5" style={{ borderRadius: 'var(--radius-lg)' }}>
                         <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
                           Add or remove expense categories. The receipt form uses this list immediately.
                         </p>
@@ -1793,7 +1793,7 @@ export default function App() {
                       </button>
                       {filterOpen && (
                         <div
-                          className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-4 z-20"
+                          className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-4 z-20"
                           style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                         >
                           <p className="micro-label mb-3">Filter by category</p>
@@ -1851,7 +1851,7 @@ export default function App() {
                           );
                           setShowItemsModal(true);
                         }}
-                        className="w-full text-left border border-[var(--color-paper-mist)] p-4 bg-[var(--color-crisp-paper-white)]"
+                        className="w-full text-left border border-[var(--color-paper-mist)] p-4 bg-[var(--color-surface)]"
                         style={{ borderRadius: 'var(--radius-md)' }}
                       >
                         <p className="font-body text-base font-medium text-[var(--color-deep-graphite)] truncate">{exp.vendor}</p>
@@ -1884,7 +1884,7 @@ export default function App() {
                           );
                           setShowItemsModal(true);
                         }}
-                        className="grid grid-cols-12 gap-6 w-full text-left px-2 py-5 border-b border-[var(--color-paper-mist)] hover:bg-[var(--color-crisp-paper-white)] transition-colors duration-150 items-baseline"
+                        className="grid grid-cols-12 gap-6 w-full text-left px-2 py-5 border-b border-[var(--color-paper-mist)] hover:bg-[var(--color-surface)] transition-colors duration-150 items-baseline"
                       >
                         <div className="col-span-5 flex items-baseline gap-3 min-w-0">
                           <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] truncate">{exp.vendor}</span>
@@ -1922,7 +1922,7 @@ export default function App() {
                 onClick={() => setShowHeicHelper(false)}
               />
               <div
-                className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-8 mt-2 sm:mt-0"
+                className="relative z-10 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-5 sm:p-8 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -1964,7 +1964,7 @@ export default function App() {
                 onClick={() => setShowItemsModal(false)}
               />
               <div
-                className="relative z-10 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
+                className="relative z-10 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -2071,7 +2071,7 @@ export default function App() {
                 onClick={() => setEditDraft(null)}
               />
               <div
-                className="relative z-10 w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
+                className="relative z-10 w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
                 style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
               >
                 <div className="flex justify-end mb-3">
@@ -2153,7 +2153,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 12 }}
                   transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                  className="pointer-events-auto bg-[var(--color-crisp-paper-white)] border border-[var(--color-paper-mist)] px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 w-[calc(100vw-2rem)] sm:w-auto min-w-0 sm:min-w-[280px] max-w-md"
+                  className="pointer-events-auto bg-[var(--color-surface)] border border-[var(--color-paper-mist)] px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 w-[calc(100vw-2rem)] sm:w-auto min-w-0 sm:min-w-[280px] max-w-md"
                   style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                 >
                   {t.tone === 'accent' && (
