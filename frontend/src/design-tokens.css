@@ -22,6 +22,7 @@
   --color-surface:   var(--color-crisp-paper-white);
   --color-text:      var(--color-deep-graphite);
   --color-text-dim:  var(--color-soft-charcoal);
+  --color-text-label: oklch(35% 0 0);
   --color-muted:     var(--color-mid-ash);
   --color-border:    var(--color-paper-mist);
   --color-accent:    var(--color-editorial-magenta);
@@ -71,8 +72,9 @@ html[data-theme="dark"] {
   --color-bg:        oklch(13% 0.01 350);
   --color-surface:   oklch(18% 0.01 350);
   --color-text:      oklch(95% 0 0);
-  --color-text-dim:  oklch(78% 0 0);
-  --color-muted:     oklch(48% 0 0);
+  --color-text-dim:  oklch(84% 0.01 350);
+  --color-text-label: oklch(72% 0.008 350);
+  --color-muted:     oklch(58% 0.008 350);
   --color-border:    oklch(32% 0.01 350);
   --color-accent:    oklch(58% 0.22 350);
   --color-accent-dim: oklch(58% 0.22 350 / 0.12);
