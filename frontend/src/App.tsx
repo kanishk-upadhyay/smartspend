@@ -1799,7 +1799,7 @@ export default function App() {
                           <p className="micro-label mb-3">Filter by category</p>
                           <div className="flex flex-col gap-2 max-h-44 overflow-auto pr-2">
                             {availableCategories.map(cat => (
-                              <label key={cat} className="flex items-center gap-3 font-body text-sm text-[var(--color-deep-graphite)] cursor-pointer">
+                              <label key={cat} className="flex items-center gap-3 font-body text-sm text-[var(--color-text)] cursor-pointer">
                                 <input
                                   type="checkbox"
                                   className="checkbox-editorial"

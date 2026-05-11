@@ -69,17 +69,27 @@
 }
 
 html[data-theme="dark"] {
-  --color-bg:        oklch(13% 0.01 350);
-  --color-surface:   oklch(18% 0.01 350);
-  --color-text:      oklch(95% 0 0);
-  --color-text-dim:  oklch(90% 0.08 60);
-  --color-text-label: oklch(72% 0.10 60);
-  --color-muted:     oklch(70% 0.06 180);
-  --color-border:    oklch(32% 0.01 350);
-  --color-accent:    oklch(58% 0.22 350);
-  --color-accent-dim: oklch(58% 0.22 350 / 0.12);
-  --color-error:     oklch(70% 0.23 10);
-  --color-error-bg:  oklch(30% 0.1 10);
-  --color-warning:   oklch(72% 0.22 55);
-  --color-warning-bg: oklch(32% 0.1 55);
+  /* ── Background & Surface ── */
+  --color-bg:        oklch(10% 0.01 280);
+  --color-surface:   oklch(16% 0.01 280);
+  
+  /* ── Text Hierarchy (violet-forward) ── */
+  --color-text:           oklch(96% 0.02 280);       /* Primary: near-white with violet tint */
+  --color-text-dim:       oklch(82% 0.20 290);       /* Secondary: bright violet-lavender */
+  --color-text-label:     oklch(74% 0.14 290);       /* Labels: softer violet */
+  --color-soft-charcoal:  oklch(82% 0.20 290);       /* Bright violet-lavender */
+  
+  /* ── Tertiary & Muted ── */
+  --color-muted:          oklch(62% 0.15 100);       /* Muted: bright lime/chartreuse for contrast */
+  
+  /* ── Borders & Accents ── */
+  --color-border:         oklch(32% 0.02 280);
+  --color-accent:         oklch(70% 0.24 100);       /* Accent: vibrant lime-green */
+  --color-accent-dim:     oklch(70% 0.24 100 / 0.15);
+  
+  /* ── Status Colors ── */
+  --color-error:          oklch(75% 0.28 20);        /* Error: bright coral/red */
+  --color-error-bg:       oklch(26% 0.12 20);
+  --color-warning:        oklch(80% 0.22 80);        /* Warning: bright yellow-green */
+  --color-warning-bg:     oklch(26% 0.10 80);
 }
