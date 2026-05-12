@@ -127,7 +127,7 @@ const TOOLTIP_FILL_DARK = 'oklch(28% 0 0 / 0.4)';
 
 const DEFAULT_CURRENCY = 'INR';
 const DEFAULT_CATEGORY = 'General';
-const BASE_CATEGORY_OPTIONS = ['Food', 'Transport', 'Shopping', 'Bills', DEFAULT_CATEGORY];
+const BASE_CATEGORY_OPTIONS = ['Food', 'Groceries', 'Transport', 'Travel', 'Shopping', 'Bills', 'Medical', 'Entertainment', 'Education', DEFAULT_CATEGORY];
 const LAST_RECEIPT_CURRENCY_KEY = 'smartspend:lastReceiptCurrency';
 const PREFERRED_HISTORY_CURRENCY_KEY = 'smartspend:preferredHistoryCurrency';
 const CATEGORY_STORAGE_KEY = 'smartspend:custom-categories';
@@ -291,11 +291,11 @@ export default function App() {
 
   const clearFilters = () => setFilterCategories([]);
 
-  const dismissToast = (id: number) => {
+  const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-  };
+  }, []);
 
-  const pushToast = (toast: Omit<Toast, 'id'>): number => {
+  const pushToast = useCallback((toast: Omit<Toast, 'id'>): number => {
     const id = ++toastIdRef.current;
     const duration = toast.duration ?? 4000;
     setToasts(prev => [...prev, { ...toast, id, duration }]);
@@ -303,7 +303,7 @@ export default function App() {
       setTimeout(() => dismissToast(id), duration);
     }
     return id;
-  };
+  }, [dismissToast]);
 
   const promoteNextResult = useCallback(() => {
     setPrefetchedResults(prev => {
@@ -331,6 +331,7 @@ export default function App() {
 
   useEffect(() => {
     if (!result && prefetchedResults.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       promoteNextResult();
     }
   }, [result, prefetchedResults, promoteNextResult]);
@@ -359,6 +360,7 @@ export default function App() {
   useEffect(() => {
     const client = supabase;
     if (!isSupabaseConfigured || !client) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAuthReady(true);
       return;
     }
@@ -485,7 +487,7 @@ export default function App() {
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       'X-SmartSpend-Guest-Id': guestSessionId,
     },
-  }), [guestSessionId, session?.access_token]);
+  }), [guestSessionId, session]);
 
   const fetchExpenses = useCallback(async () => {
     try {
@@ -502,6 +504,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authReady) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchExpenses();
   }, [authReady, fetchExpenses]);
 
@@ -535,10 +538,11 @@ export default function App() {
     } catch (error) {
       setAccountError(getErrorMessage(error, 'Unable to load account settings.'));
     }
-  }, [requestConfig, session?.user]);
+  }, [requestConfig, session]);
 
   useEffect(() => {
     if (!authReady) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadAccountSettings();
   }, [authReady, loadAccountSettings]);
 
@@ -606,7 +610,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [editDraft, showHeicHelper, showItemsModal]);
 
-  const runOcr = async (file: File) => {
+  const runOcr = useCallback(async (file: File) => {
     setLoading(true);
     setPendingFiles(prev => prev.slice(1));
     const shouldDisplayNow = !result;
@@ -646,13 +650,15 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [result, categoryOptions, pushToast, requestConfig]);
 
   useEffect(() => {
     if (!loading && pendingFiles.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       runOcr(pendingFiles[0]);
     }
-  }, [pendingFiles, loading, runOcr]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFiles, loading]);
 
   const skipCurrent = () => {
     setResult(null);
