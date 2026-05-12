@@ -12,7 +12,18 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 
-Category = Literal["Food", "Transport", "Shopping", "Bills", "General"]
+Category = Literal[
+    "Food",
+    "Groceries",
+    "Transport",
+    "Travel",
+    "Shopping",
+    "Bills",
+    "Medical",
+    "Entertainment",
+    "Education",
+    "General",
+]
 
 
 PROMPT = """Extract structured data from this receipt image.
@@ -24,10 +35,15 @@ PROMPT = """Extract structured data from this receipt image.
 - detected_currencies: every ISO 4217 code seen on the receipt
 - items: each purchased line item with name and amount in source currency. Include qty if explicitly shown. Exclude tax, total, subtotal, discount, tip, and payment lines.
 - category: classify the receipt as one of:
-    Food (restaurants, cafes, groceries, food delivery)
+    Food (restaurants, cafes, food delivery, coffee shops)
+    Groceries (supermarkets, grocery stores, produce, household staples)
     Transport (taxi, ride-share, fuel, public transit, flights, parking)
+    Travel (hotels, lodging, vacation rentals, travel insurance)
     Shopping (clothing, electronics, home goods, retail)
     Bills (utilities, rent, phone, internet, insurance, subscriptions)
+    Medical (pharmacy, prescriptions, doctor, dental, vision, hospital, copay)
+    Entertainment (movies, concerts, events, games, books)
+    Education (tuition, courses, training, school supplies)
     General (anything that doesn't clearly fit above)
   Use General when uncertain. Pick exactly one.
 
