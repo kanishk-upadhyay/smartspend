@@ -1,8 +1,8 @@
 import os
 import json
-import mimetypes
 import logging
 import base64
+import time
 from uuid import uuid4
 from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
@@ -22,6 +22,15 @@ from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 
 ALLOWED_UPLOAD_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".pdf", ".heic", ".heif"}
+EXT_TO_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
 logger = logging.getLogger("smartspend.api")
 if not logging.getLogger().handlers:
     logging.basicConfig(level=logging.INFO)
@@ -36,9 +45,6 @@ FRONTEND_DIST_DIR = os.path.abspath(os.path.join(BACKEND_DIR, "..", "frontend", 
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or ""
 SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "receipts")
-SUPABASE_PUBLIC_PREFIX = (
-    f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}" if SUPABASE_URL else ""
-)
 SUPABASE_AUTH_USER_URL = f"{SUPABASE_URL}/auth/v1/user" if SUPABASE_URL else ""
 SUPABASE_ADMIN_USER_URL = f"{SUPABASE_URL}/auth/v1/admin/users" if SUPABASE_URL else ""
 
@@ -48,14 +54,6 @@ if SUPABASE_URL and not os.getenv("DATABASE_URL"):
     logger.warning(
         "SUPABASE_URL is set without DATABASE_URL. Files are durable, but metadata will still use local SQLite."
     )
-
-
-def _attach_items(expense):
-    try:
-        expense.items = json.loads(expense.items_json or "[]")
-    except Exception:
-        expense.items = []
-    return expense
 
 
 def _safe_upload_path(filename: str) -> str:
@@ -80,7 +78,89 @@ def _validate_image_path(image_path: str) -> None:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise HTTPException(status_code=400, detail="Invalid remote image_path")
         return
+    if "/" in image_path:
+        if ".." in image_path.split("/") or image_path.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid image_path")
+        return
     _safe_upload_path(image_path)
+
+
+def _normalize_image_path(stored: Optional[str]) -> Optional[str]:
+    """Strip Supabase URL wrappers, leaving a canonical bucket object path or local filename."""
+    if not stored:
+        return None
+    if SUPABASE_URL and stored.startswith(SUPABASE_URL + "/storage/v1/object/"):
+        bare = stored.split("?", 1)[0]
+        for prefix in (
+            f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/",
+            f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/",
+            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/",
+        ):
+            if bare.startswith(prefix):
+                return bare[len(prefix):]
+    return stored
+
+
+_SIGNED_URL_TTL_SECONDS = 24 * 3600
+_SIGNED_URL_REFRESH_BEFORE_SECONDS = 30 * 60
+_SIGNED_URL_CACHE_MAX = 10000
+_signed_url_cache: dict[str, tuple[str, float]] = {}
+
+
+def _sign_supabase_object(object_path: str, expires_in: int = _SIGNED_URL_TTL_SECONDS) -> Optional[str]:
+    if not (SUPABASE_URL and SUPABASE_KEY) or not object_path:
+        return None
+
+    now = time.time()
+    cached = _signed_url_cache.get(object_path)
+    if cached and cached[1] - now > _SIGNED_URL_REFRESH_BEFORE_SECONDS:
+        return cached[0]
+
+    target = f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/{quote(object_path, safe='/')}"
+    try:
+        response = httpx.post(
+            target,
+            json={"expiresIn": expires_in},
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10.0,
+        )
+    except httpx.RequestError:
+        logger.warning("Could not reach Supabase to sign %s", object_path)
+        return None
+    if response.status_code >= 300:
+        logger.warning("Sign URL failed (%s) for %s: %s", response.status_code, object_path, response.text)
+        return None
+    signed_path = (response.json() or {}).get("signedURL") or ""
+    if not signed_path:
+        return None
+    full_url = f"{SUPABASE_URL}/storage/v1{signed_path}" if signed_path.startswith("/") else signed_path
+
+    if len(_signed_url_cache) >= _SIGNED_URL_CACHE_MAX:
+        _signed_url_cache.pop(next(iter(_signed_url_cache)), None)
+    _signed_url_cache[object_path] = (full_url, now + expires_in)
+    return full_url
+
+
+def _displayable_image_path(stored: Optional[str]) -> Optional[str]:
+    object_path = _normalize_image_path(stored)
+    if not object_path:
+        return None
+    if "/" not in object_path:
+        return object_path
+    return _sign_supabase_object(object_path)
+
+
+def _attach_items(expense):
+    try:
+        expense.items = json.loads(expense.items_json or "[]")
+    except Exception:
+        expense.items = []
+    expense.image_path = _displayable_image_path(expense.image_path)
+    return expense
 
 
 def _normalize_theme(theme: Optional[str]) -> str:
@@ -250,28 +330,29 @@ def _upload_to_supabase(local_path: str, object_name: str, content_type: str) ->
             detail=f"Supabase upload failed ({response.status_code}): {response.text}",
         )
 
-    return f"{SUPABASE_PUBLIC_PREFIX}/{object_name}"
+    return object_name
 
 
 def _delete_supabase_object(image_path: str) -> None:
-    if not (SUPABASE_URL and SUPABASE_KEY and SUPABASE_PUBLIC_PREFIX):
+    if not (SUPABASE_URL and SUPABASE_KEY):
         return
-    if not image_path.startswith(SUPABASE_PUBLIC_PREFIX + "/"):
-        return
-
-    object_name = image_path[len(SUPABASE_PUBLIC_PREFIX) + 1 :]
-    if not object_name:
+    object_name = _normalize_image_path(image_path)
+    if not object_name or "/" not in object_name:
         return
 
     target = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
-    response = httpx.delete(
-        target,
-        headers={
-            "apikey": SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
-        },
-        timeout=30.0,
-    )
+    try:
+        response = httpx.delete(
+            target,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+            },
+            timeout=30.0,
+        )
+    except httpx.RequestError:
+        logger.warning("Could not reach Supabase to delete %s", object_name)
+        return
     if response.status_code >= 300 and response.status_code != 404:
         raise HTTPException(
             status_code=502,
@@ -475,6 +556,7 @@ def create_expense(request: Request, expense: ExpenseBase):
     db = SessionLocal()
     _claim_legacy_rows(db, owner_id)
     if expense.image_path:
+        expense.image_path = _normalize_image_path(expense.image_path)
         _validate_image_path(expense.image_path)
         existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
         if existing is not None:
@@ -515,6 +597,7 @@ def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate):
 
     update_data = expense.dict(exclude_unset=True, exclude={"items"})
     if "image_path" in update_data and update_data["image_path"]:
+        update_data["image_path"] = _normalize_image_path(update_data["image_path"])
         _validate_image_path(update_data["image_path"])
     for key, value in update_data.items():
         setattr(db_expense, key, value)
@@ -538,11 +621,12 @@ def delete_expense(expense_id: int, request: Request):
         raise HTTPException(status_code=404, detail="Expense not found")
     image_path = db_expense.image_path
     if image_path:
-        if _is_remote_path(image_path):
+        canonical = _normalize_image_path(image_path)
+        if canonical and "/" in canonical:
             _delete_supabase_object(image_path)
-        else:
+        elif canonical:
             try:
-                full_path = _safe_upload_path(image_path)
+                full_path = _safe_upload_path(canonical)
                 if os.path.isfile(full_path):
                     os.remove(full_path)
             except HTTPException:
@@ -593,7 +677,7 @@ async def upload_receipt(payload: UploadRequest):
 
     image_path = saved_name
     if SUPABASE_URL and SUPABASE_KEY:
-        content_type = payload.content_type or mimetypes.guess_type(saved_name)[0] or "application/octet-stream"
+        content_type = EXT_TO_MIME.get(ext, "application/octet-stream")
         object_name = f"receipts/{saved_name}"
         try:
             image_path = _upload_to_supabase(file_path, object_name, content_type)
@@ -603,7 +687,7 @@ async def upload_receipt(payload: UploadRequest):
 
     return {
         "filename": original_name,
-        "image_path": image_path,
+        "image_path": _displayable_image_path(image_path) or image_path,
         "message": "File uploaded and processed successfully",
         "extracted_data": extracted_data,
     }
