@@ -291,6 +291,20 @@ export default function App() {
 
   const clearFilters = () => setFilterCategories([]);
 
+  const dismissToast = (id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const pushToast = (toast: Omit<Toast, 'id'>): number => {
+    const id = ++toastIdRef.current;
+    const duration = toast.duration ?? 4000;
+    setToasts(prev => [...prev, { ...toast, id, duration }]);
+    if (duration > 0) {
+      setTimeout(() => dismissToast(id), duration);
+    }
+    return id;
+  };
+
   const promoteNextResult = useCallback(() => {
     setPrefetchedResults(prev => {
       if (prev.length === 0) {
@@ -638,8 +652,7 @@ export default function App() {
     if (!loading && pendingFiles.length > 0) {
       runOcr(pendingFiles[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingFiles, loading]);
+  }, [pendingFiles, loading, runOcr]);
 
   const skipCurrent = () => {
     setResult(null);
@@ -875,20 +888,6 @@ export default function App() {
     }
   };
 
-  const dismissToast = (id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  const pushToast = (toast: Omit<Toast, 'id'>): number => {
-    const id = ++toastIdRef.current;
-    const duration = toast.duration ?? 4000;
-    setToasts(prev => [...prev, { ...toast, id, duration }]);
-    if (duration > 0) {
-      setTimeout(() => dismissToast(id), duration);
-    }
-    return id;
-  };
-
   const handleDeleteExpense = (exp: Expense) => {
     // Optimistically remove + show 5s undo toast. Actual DELETE fires when the timer resolves.
     setExpenses(prev => prev.filter(item => item.id !== exp.id));
@@ -1037,7 +1036,7 @@ export default function App() {
                       onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
                       onDrop={handleDrop}
-                      className={`block relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-12 sm:py-16 lg:py-20 bg-[var(--color-surface)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
+                      className={`relative border border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer py-12 sm:py-16 lg:py-20 bg-[var(--color-surface)] ${isDragging ? 'border-[var(--color-accent)]' : 'border-[var(--color-paper-mist)] hover:border-[var(--color-accent)]'}`}
                       style={{ borderRadius: 'var(--radius-md)' }}
                     >
                       {loading ? (
