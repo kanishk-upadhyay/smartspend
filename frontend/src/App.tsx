@@ -1082,7 +1082,11 @@ export default function App() {
           <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-4 space-y-3" style={{ borderRadius: 'var(--radius-md)' }}>
             <p className="micro-label">Session</p>
             <div className="flex items-center gap-3">
-              <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
+              {accountDraft.avatarUrl ? (
+                <img src={accountDraft.avatarUrl} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
+              ) : (
+                <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
+              )}
               <div className="min-w-0">
                 <p className="font-body text-sm font-medium text-[var(--color-deep-graphite)] truncate">{identityLabel}</p>
                 <p className="font-body text-xs text-[var(--color-mid-ash)] italic truncate">
@@ -1098,7 +1102,20 @@ export default function App() {
             {navItem('dashboard', 'Dashboard', LayoutDashboard)}
             {navItem('analytics', 'Analytics', BarChart3)}
             {navItem('history', 'Receipts', History)}
-            {navItem('account', 'Account', CircleUserRound)}
+            <button
+              onClick={() => setCurrentView('account')}
+              aria-label="Account"
+              aria-current={currentView === 'account' ? 'page' : undefined}
+              className={`group flex items-center gap-3 py-2 transition-colors duration-150 ${currentView === 'account' ? 'text-[var(--color-accent)]' : 'text-[var(--color-soft-charcoal)] hover:text-[var(--color-accent)]'}`}
+            >
+              <span aria-hidden="true" className={`inline-block w-1.5 h-1.5 transition-opacity duration-150 ${currentView === 'account' ? 'opacity-100' : 'opacity-0'}`} style={{ backgroundColor: 'var(--color-accent)' }} />
+              {accountDraft.avatarUrl ? (
+                <img src={accountDraft.avatarUrl} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <CircleUserRound className="w-4 h-4" />
+              )}
+              <span className="font-body text-sm font-medium">Account</span>
+            </button>
           </div>
         </nav>
 
