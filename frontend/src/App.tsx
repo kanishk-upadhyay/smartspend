@@ -30,6 +30,8 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  AreaChart,
+  Area,
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
@@ -447,6 +449,96 @@ export default function App() {
     if (!expenses.length) return null;
     return expenses.reduce((max, exp) => exp.total_amount > max.total_amount ? exp : max, expenses[0]);
   }, [expenses]);
+
+  // Spending by weekday — surfaces the user's weekly rhythm (Mon → Sun for easy reading).
+  const weekdayData = useMemo(() => {
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    expenses.forEach(exp => {
+      const iso = exp.receipt_date || exp.date;
+      if (!iso || iso === 'Unknown' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      const day = new Date(`${iso}T00:00:00`).getDay();
+      totals[day] += exp.total_amount;
+      counts[day] += 1;
+    });
+    const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    return order.map(i => ({
+      day: labels[i],
+      amount: totals[i],
+      count: counts[i],
+      average: counts[i] > 0 ? totals[i] / counts[i] : 0,
+    }));
+  }, [expenses]);
+
+  const busiestWeekday = useMemo(() => {
+    if (!weekdayData.some(d => d.amount > 0)) return null;
+    return weekdayData.reduce((max, d) => (d.amount > max.amount ? d : max), weekdayData[0]);
+  }, [weekdayData]);
+
+  // Calendar-month totals — last 12 months with data.
+  const monthlyData = useMemo(() => {
+    const monthly: Record<string, { amount: number; count: number }> = {};
+    expenses.forEach(exp => {
+      const iso = exp.receipt_date || exp.date;
+      if (!iso || iso === 'Unknown' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      const ym = iso.slice(0, 7);
+      if (!monthly[ym]) monthly[ym] = { amount: 0, count: 0 };
+      monthly[ym].amount += exp.total_amount;
+      monthly[ym].count += 1;
+    });
+    return Object.entries(monthly)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12)
+      .map(([month, { amount, count }]) => {
+        const [year, mon] = month.split('-');
+        const monthName = new Date(Number(year), Number(mon) - 1).toLocaleString('en-US', { month: 'short' });
+        return { month, amount, count, label: `${monthName} '${year.slice(2)}` };
+      });
+  }, [expenses]);
+
+  const monthOverMonthDelta = useMemo(() => {
+    if (monthlyData.length < 2) return null;
+    const current = monthlyData[monthlyData.length - 1];
+    const prior = monthlyData[monthlyData.length - 2];
+    if (prior.amount === 0) return null;
+    return {
+      current,
+      prior,
+      delta: current.amount - prior.amount,
+      pct: ((current.amount - prior.amount) / prior.amount) * 100,
+    };
+  }, [monthlyData]);
+
+  // Cumulative spend trajectory — rolled up by day so the line is smooth.
+  const cumulativeData = useMemo(() => {
+    const daily: Record<string, number> = {};
+    expenses.forEach(exp => {
+      const iso = exp.receipt_date || exp.date;
+      if (!iso || iso === 'Unknown' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      daily[iso] = (daily[iso] || 0) + exp.total_amount;
+    });
+    const sorted = Object.entries(daily).sort(([a], [b]) => a.localeCompare(b));
+    return sorted.reduce<{ date: string; cumulative: number; daily: number; label: string }[]>((acc, [date, amount]) => {
+      const previous = acc.length > 0 ? acc[acc.length - 1].cumulative : 0;
+      acc.push({
+        date,
+        cumulative: previous + amount,
+        daily: amount,
+        label: date.slice(5).replace('-', '/'),
+      });
+      return acc;
+    }, []);
+  }, [expenses]);
+
+  const cumulativeSpan = useMemo(() => {
+    if (cumulativeData.length < 2) return null;
+    const first = new Date(`${cumulativeData[0].date}T00:00:00`).getTime();
+    const last = new Date(`${cumulativeData[cumulativeData.length - 1].date}T00:00:00`).getTime();
+    const days = Math.max(1, Math.round((last - first) / (1000 * 60 * 60 * 24)) + 1);
+    const total = cumulativeData[cumulativeData.length - 1].cumulative;
+    return { days, total, perDay: total / days };
+  }, [cumulativeData]);
 
   const currentReceiptSourceCurrency = result?.extracted_data.source_currency || null;
   const currentReceiptCurrencies = result?.extracted_data.detected_currencies || [];
@@ -1471,6 +1563,169 @@ export default function App() {
                         </div>
                       )}
                     </section>
+
+                    {/* Weekday rhythm */}
+                    {weekdayData.some(d => d.amount > 0) && (
+                      <section>
+                        <div className="flex items-baseline justify-between mb-6">
+                          <p className="micro-label">Weekday rhythm</p>
+                          {busiestWeekday && (
+                            <span className="font-mono text-xs text-[var(--color-mid-ash)]">
+                              busiest · {busiestWeekday.day.toLowerCase()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-[240px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
+                            <BarChart data={weekdayData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
+                              <XAxis
+                                dataKey="day"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dy={10}
+                              />
+                              <YAxis
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dx={-8}
+                              />
+                              <RechartsTooltip
+                                cursor={{ fill: TOOLTIP_FILL }}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
+                                labelFormatter={(label, payload) => {
+                                  const item = (payload as readonly { payload?: { count: number; average: number } }[])[0]?.payload;
+                                  if (!item) return String(label);
+                                  const avg = item.average > 0 ? ` · avg ${formatMoney(item.average, DEFAULT_CURRENCY)}` : '';
+                                  return `${label} — ${item.count} ${item.count === 1 ? 'receipt' : 'receipts'}${avg}`;
+                                }}
+                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
+                              />
+                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={22} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {busiestWeekday && (
+                          <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
+                            You spend most on {busiestWeekday.day}s — {formatMoney(busiestWeekday.amount, DEFAULT_CURRENCY)} across {busiestWeekday.count} {busiestWeekday.count === 1 ? 'receipt' : 'receipts'}.
+                          </p>
+                        )}
+                      </section>
+                    )}
+
+                    {/* Monthly totals */}
+                    {monthlyData.length > 0 && (
+                      <section>
+                        <div className="flex items-baseline justify-between mb-6">
+                          <p className="micro-label">By month</p>
+                          <span className="font-mono text-xs text-[var(--color-mid-ash)]">
+                            {monthlyData.length} {monthlyData.length === 1 ? 'month' : 'months'}
+                          </span>
+                        </div>
+                        <div className="h-[260px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
+                            <BarChart data={monthlyData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
+                              <XAxis
+                                dataKey="label"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dy={10}
+                              />
+                              <YAxis
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dx={-8}
+                              />
+                              <RechartsTooltip
+                                cursor={{ fill: TOOLTIP_FILL }}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
+                                labelFormatter={(label, payload) => {
+                                  const item = (payload as readonly { payload?: { count: number } }[])[0]?.payload;
+                                  if (!item) return String(label);
+                                  return `${label} — ${item.count} ${item.count === 1 ? 'receipt' : 'receipts'}`;
+                                }}
+                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
+                              />
+                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={26} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {monthOverMonthDelta && (
+                          <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
+                            {monthOverMonthDelta.delta >= 0 ? 'Up' : 'Down'} {formatMoney(Math.abs(monthOverMonthDelta.delta), DEFAULT_CURRENCY)} ({monthOverMonthDelta.pct >= 0 ? '+' : ''}{monthOverMonthDelta.pct.toFixed(0)}%) versus {monthOverMonthDelta.prior.label}.
+                          </p>
+                        )}
+                      </section>
+                    )}
+
+                    {/* Cumulative trajectory */}
+                    {cumulativeData.length > 1 && (
+                      <section>
+                        <div className="flex items-baseline justify-between mb-6">
+                          <p className="micro-label">Trajectory</p>
+                          {cumulativeSpan && (
+                            <span className="font-mono text-xs text-[var(--color-mid-ash)]">
+                              {cumulativeSpan.days} {cumulativeSpan.days === 1 ? 'day' : 'days'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-[260px] min-w-0">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
+                            <AreaChart data={cumulativeData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="trajectoryGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
+                                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0.02} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
+                              <XAxis
+                                dataKey="label"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dy={10}
+                                minTickGap={24}
+                              />
+                              <YAxis
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: TEXT_DIM, fontSize: 11, fontFamily: 'Instrument Sans, sans-serif' }}
+                                dx={-8}
+                              />
+                              <RechartsTooltip
+                                cursor={{ stroke: ACCENT, strokeWidth: 1, strokeDasharray: '3 3' }}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
+                                labelFormatter={(label, payload) => {
+                                  const item = (payload as readonly { payload?: { date?: string; daily?: number } }[])[0]?.payload;
+                                  if (!item) return String(label);
+                                  const dayLine = item.daily ? ` · ${formatMoney(item.daily, DEFAULT_CURRENCY)} that day` : '';
+                                  return `${item.date || label}${dayLine}`;
+                                }}
+                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Running total']}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="cumulative"
+                                stroke={ACCENT}
+                                strokeWidth={2}
+                                fill="url(#trajectoryGradient)"
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {cumulativeSpan && (
+                          <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
+                            Averaging {formatMoney(cumulativeSpan.perDay, DEFAULT_CURRENCY)} per day across this window.
+                          </p>
+                        )}
+                      </section>
+                    )}
 
                     {/* Top merchants */}
                     {topMerchants.length > 0 && (
