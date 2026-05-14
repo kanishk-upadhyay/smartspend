@@ -280,7 +280,7 @@ def _claim_legacy_rows(db, owner_id: str) -> None:
     db.commit()
 
 
-def _settings_payload(settings: AccountSettings) -> AccountSettingsResponse:
+def _settings_payload(settings: AccountSettings) -> "AccountSettingsResponse":
     try:
         categories = json.loads(settings.custom_categories_json or "[]")
     except Exception:
