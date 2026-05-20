@@ -2,25 +2,33 @@ import json
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
-from functools import lru_cache
 
 from gemini_extractor import GeminiExtractor
 
 DEFAULT_CURRENCY = "INR"
 MIXED_CURRENCY = "MIXED"
+_FX_CACHE_MAX = 512
 
 
 class OCRProcessor:
     def __init__(self):
         self.extractor = GeminiExtractor()
+        # Only successful lookups are cached so a transient CDN failure doesn't
+        # permanently break FX conversion for that (currency, date) pair.
+        self._fx_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
 
-    @lru_cache(maxsize=512)
     def get_historical_rate(self, source_currency, target_currency, receipt_date_iso):
         if source_currency == target_currency:
             return 1.0, receipt_date_iso, None
 
         if not receipt_date_iso:
             return None, None, "Receipt date missing, cannot fetch historical FX rate."
+
+        cache_key = (source_currency, target_currency, receipt_date_iso)
+        cached = self._fx_cache.get(cache_key)
+        if cached is not None:
+            rate, query_date = cached
+            return rate, query_date, None
 
         date_obj = datetime.fromisoformat(receipt_date_iso).date()
         for offset in range(0, 8):
@@ -35,7 +43,11 @@ class OCRProcessor:
                     payload = json.loads(response.read().decode("utf-8"))
                 rate = payload.get(target_currency.lower())
                 if rate is not None:
-                    return float(rate), query_date, None
+                    rate_value = float(rate)
+                    if len(self._fx_cache) >= _FX_CACHE_MAX:
+                        self._fx_cache.pop(next(iter(self._fx_cache)), None)
+                    self._fx_cache[cache_key] = (rate_value, query_date)
+                    return rate_value, query_date, None
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError):
                 continue
 

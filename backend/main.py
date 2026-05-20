@@ -10,11 +10,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from database import SessionLocal, Expense, AccountSettings
 from ocr_utils import ocr_engine
 from gemini_extractor import ReceiptExtractionError
@@ -435,14 +436,22 @@ app.add_middleware(
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 @app.get("/health")
 def read_health():
     return {"message": "SmartSpend API is running"}
 
 @app.get("/account-settings", response_model=AccountSettingsResponse)
-def get_account_settings(request: Request):
+def get_account_settings(request: Request, db: Session = Depends(get_db)):
     owner_id, _, auth_user = _resolve_identity(request)
-    db = SessionLocal()
     _claim_legacy_rows(db, owner_id)
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     if settings is None:
@@ -459,14 +468,12 @@ def get_account_settings(request: Request):
         db.add(settings)
         db.commit()
         db.refresh(settings)
-    db.close()
     return _settings_payload(settings)
 
 
 @app.put("/account-settings", response_model=AccountSettingsResponse)
-def update_account_settings(request: Request, payload: AccountSettingsUpdate):
+def update_account_settings(request: Request, payload: AccountSettingsUpdate, db: Session = Depends(get_db)):
     owner_id, identity_type, auth_user = _resolve_identity(request)
-    db = SessionLocal()
     _claim_legacy_rows(db, owner_id)
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     if settings is None:
@@ -493,12 +500,11 @@ def update_account_settings(request: Request, payload: AccountSettingsUpdate):
     db.refresh(settings)
     if identity_type == "auth":
         _sync_supabase_user_metadata(owner_id, settings)
-    db.close()
     return _settings_payload(settings)
 
 
 @app.post("/account-migrate-guest", response_model=AccountSettingsResponse)
-def migrate_guest_account(request: Request):
+def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
     owner_id, identity_type, auth_user = _resolve_identity(request)
     guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
     if not guest_id:
@@ -508,7 +514,6 @@ def migrate_guest_account(request: Request):
     if identity_type != "auth":
         raise HTTPException(status_code=401, detail="Sign in required for guest migration")
 
-    db = SessionLocal()
     guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
     account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
@@ -535,25 +540,26 @@ def migrate_guest_account(request: Request):
     db.commit()
     db.refresh(account_settings)
     _sync_supabase_user_metadata(owner_id, account_settings)
-    db.close()
     return _settings_payload(account_settings)
 
 
 @app.get("/expenses", response_model=List[ExpenseResponse])
-def list_expenses(request: Request):
+def list_expenses(request: Request, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    db = SessionLocal()
     _claim_legacy_rows(db, owner_id)
-    expenses = db.query(Expense).filter(Expense.owner_id == owner_id).all()
+    expenses = (
+        db.query(Expense)
+        .filter(Expense.owner_id == owner_id)
+        .order_by(Expense.id.asc())
+        .all()
+    )
     for expense in expenses:
         _attach_items(expense)
-    db.close()
     return expenses
 
 @app.post("/expenses", response_model=ExpenseResponse)
-def create_expense(request: Request, expense: ExpenseBase):
+def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    db = SessionLocal()
     _claim_legacy_rows(db, owner_id)
     if expense.image_path:
         expense.image_path = _normalize_image_path(expense.image_path)
@@ -561,7 +567,6 @@ def create_expense(request: Request, expense: ExpenseBase):
         existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
         if existing is not None:
             _attach_items(existing)
-            db.close()
             return existing
 
     payload = expense.dict(exclude={"items"})
@@ -577,22 +582,17 @@ def create_expense(request: Request, expense: ExpenseBase):
             existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
             if existing is not None:
                 _attach_items(existing)
-                db.close()
                 return existing
-        db.close()
         raise
     db.refresh(db_expense)
     _attach_items(db_expense)
-    db.close()
     return db_expense
 
 @app.put("/expenses/{expense_id}", response_model=ExpenseResponse)
-def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate):
+def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    db = SessionLocal()
     db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.owner_id == owner_id).first()
     if db_expense is None:
-        db.close()
         raise HTTPException(status_code=404, detail="Expense not found")
 
     update_data = expense.dict(exclude_unset=True, exclude={"items"})
@@ -608,16 +608,13 @@ def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate):
     db.commit()
     db.refresh(db_expense)
     _attach_items(db_expense)
-    db.close()
     return db_expense
 
 @app.delete("/expenses/{expense_id}")
-def delete_expense(expense_id: int, request: Request):
+def delete_expense(expense_id: int, request: Request, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    db = SessionLocal()
     db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.owner_id == owner_id).first()
     if db_expense is None:
-        db.close()
         raise HTTPException(status_code=404, detail="Expense not found")
     image_path = db_expense.image_path
     if image_path:
@@ -633,7 +630,6 @@ def delete_expense(expense_id: int, request: Request):
                 pass
     db.delete(db_expense)
     db.commit()
-    db.close()
     return {"id": expense_id, "deleted": True}
 
 @app.post("/upload")
