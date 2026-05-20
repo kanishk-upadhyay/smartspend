@@ -32,6 +32,7 @@ import {
   CartesianGrid,
   AreaChart,
   Area,
+  ReferenceLine,
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
@@ -348,6 +349,14 @@ export default function App() {
   }, [themePreference]);
 
   useEffect(() => {
+    const timers = deletionTimers.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       if (isGuestSession) {
         localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(customCategories));
@@ -398,8 +407,9 @@ export default function App() {
   );
 
   const filteredExpenses = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     return expenses.filter(exp => {
-      const matchesQuery = searchQuery.trim() === '' || exp.vendor.toLowerCase().includes(searchQuery.toLowerCase()) || exp.category.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesQuery = query === '' || exp.vendor.toLowerCase().includes(query) || exp.category.toLowerCase().includes(query);
       const matchesCategory = filterCategories.length === 0 || filterCategories.includes(exp.category);
       return matchesQuery && matchesCategory;
     });
@@ -510,6 +520,11 @@ export default function App() {
     };
   }, [monthlyData]);
 
+  const monthlyAvg = useMemo(() => {
+    if (monthlyData.length === 0) return 0;
+    return monthlyData.reduce((sum, d) => sum + d.amount, 0) / monthlyData.length;
+  }, [monthlyData]);
+
   // Cumulative spend trajectory — rolled up by day so the line is smooth.
   const cumulativeData = useMemo(() => {
     const daily: Record<string, number> = {};
@@ -579,7 +594,7 @@ export default function App() {
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       'X-SmartSpend-Guest-Id': guestSessionId,
     },
-  }), [guestSessionId, session]);
+  }), [guestSessionId, session?.access_token]);
 
   const fetchExpenses = useCallback(async () => {
     try {
@@ -1242,13 +1257,24 @@ export default function App() {
                           )}
 
                           <div className="space-y-6">
-                            <div>
-                              <label className="micro-label block mb-2">Merchant</label>
-                              <input
-                                value={result.extracted_data.vendor}
-                                onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, vendor: e.target.value } })}
-                                className="input-editorial"
-                              />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                              <div>
+                                <label className="micro-label block mb-2">Merchant</label>
+                                <input
+                                  value={result.extracted_data.vendor}
+                                  onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, vendor: e.target.value } })}
+                                  className="input-editorial"
+                                />
+                              </div>
+                              <div>
+                                <label className="micro-label block mb-2">Date</label>
+                                <input
+                                  value={result.extracted_data.date || ''}
+                                  onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, date: e.target.value } })}
+                                  className="input-editorial"
+                                  placeholder="YYYY-MM-DD"
+                                />
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -1256,8 +1282,9 @@ export default function App() {
                                 <label className="micro-label block mb-2">Total</label>
                                 <input
                                   type="number"
+                                  step="any"
                                   value={result.extracted_data.total_amount}
-                                  onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, total_amount: parseFloat(e.target.value) } })}
+                                  onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, total_amount: e.target.value as unknown as number } })}
                                   className="input-editorial"
                                 />
                                 <p className="font-body text-xs text-[var(--color-mid-ash)] mt-2">
@@ -1356,13 +1383,14 @@ export default function App() {
                                       className="input-editorial col-span-2"
                                       value={it.qty ?? ''}
                                       placeholder="—"
-                                      onChange={(e) => setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.map((x, i) => i === idx ? { ...x, qty: e.target.value === '' ? undefined : (parseFloat(e.target.value) || 0) } : x) } }) : r)}
+                                      onChange={(e) => setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.map((x, i) => i === idx ? { ...x, qty: e.target.value === '' ? undefined : (e.target.value as unknown as number) } : x) } }) : r)}
                                     />
                                     <input
                                       type="number"
+                                      step="any"
                                       className="input-editorial col-span-3"
                                       value={it.amount}
-                                      onChange={(e) => setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.map((x, i) => i === idx ? { ...x, amount: parseFloat(e.target.value) || 0 } : x) } }) : r)}
+                                      onChange={(e) => setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.map((x, i) => i === idx ? { ...x, amount: e.target.value as unknown as number } : x) } }) : r)}
                                     />
                                     <button
                                       aria-label="Remove item"
@@ -1550,7 +1578,7 @@ export default function App() {
                       ) : (
                         <div className="h-[280px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
-                            <BarChart data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                            <BarChart data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="label"
@@ -1574,7 +1602,7 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={20} />
+                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={20} isAnimationActive animationDuration={600} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -1594,7 +1622,7 @@ export default function App() {
                         </div>
                         <div className="h-[240px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
-                            <BarChart data={weekdayData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                            <BarChart data={weekdayData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="day"
@@ -1620,7 +1648,7 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={22} />
+                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={22} isAnimationActive animationDuration={600} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -1643,7 +1671,7 @@ export default function App() {
                         </div>
                         <div className="h-[260px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                            <BarChart data={monthlyData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                            <BarChart data={monthlyData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="label"
@@ -1668,7 +1696,8 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={26} />
+                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={26} isAnimationActive animationDuration={600} />
+                              <ReferenceLine y={monthlyAvg} stroke={TEXT_DIM} strokeDasharray="4 3" strokeWidth={1} label={{ value: 'avg', position: 'insideTopRight', fill: TEXT_DIM, fontSize: 10, fontFamily: 'Instrument Sans, sans-serif' }} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -1693,7 +1722,7 @@ export default function App() {
                         </div>
                         <div className="h-[260px] min-w-0">
                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                            <AreaChart data={cumulativeData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                            <AreaChart data={cumulativeData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <defs>
                                 <linearGradient id="trajectoryGradient" x1="0" y1="0" x2="0" y2="1">
                                   <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
@@ -1732,6 +1761,8 @@ export default function App() {
                                 stroke={ACCENT}
                                 strokeWidth={2}
                                 fill="url(#trajectoryGradient)"
+                                isAnimationActive
+                                animationDuration={600}
                               />
                             </AreaChart>
                           </ResponsiveContainer>
@@ -2381,9 +2412,10 @@ export default function App() {
                       <label className="micro-label block mb-2">Total</label>
                       <input
                         type="number"
+                        step="any"
                         className="input-editorial"
                         value={editDraft.total_amount}
-                        onChange={(e) => setEditDraft(d => d ? { ...d, total_amount: parseFloat(e.target.value) || 0 } : d)}
+                        onChange={(e) => setEditDraft(d => d ? { ...d, total_amount: e.target.value as unknown as number } : d)}
                       />
                     </div>
                     <div>
@@ -2392,6 +2424,7 @@ export default function App() {
                         className="input-editorial"
                         value={editDraft.date}
                         onChange={(e) => setEditDraft(d => d ? { ...d, date: e.target.value } : d)}
+                        placeholder="YYYY-MM-DD"
                       />
                     </div>
                   </div>
