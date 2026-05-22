@@ -2,6 +2,7 @@ fastapi
 uvicorn
 python-multipart
 google-genai
+zai-sdk
 python-dotenv
 sqlalchemy
 psycopg[binary]

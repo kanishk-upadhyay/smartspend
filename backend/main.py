@@ -191,11 +191,22 @@ def _auth_headers(auth_header: str) -> dict[str, str]:
     }
 
 
+# Validated bearer tokens are cached briefly so a burst of requests from one
+# page load doesn't fire a Supabase round-trip apiece.
+_AUTH_CACHE: dict[str, tuple[float, str, dict]] = {}
+_AUTH_CACHE_TTL = 60.0
+_AUTH_CACHE_MAX = 1024
+
+
 def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
     auth_header = request.headers.get("authorization", "").strip()
     guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
 
     if auth_header and SUPABASE_URL and SUPABASE_KEY:
+        now = time.time()
+        cached = _AUTH_CACHE.get(auth_header)
+        if cached is not None and now - cached[0] < _AUTH_CACHE_TTL:
+            return cached[1], "auth", cached[2]
         try:
             response = httpx.get(
                 SUPABASE_AUTH_USER_URL,
@@ -208,7 +219,11 @@ def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
             user = response.json()
             user_id = user.get("id")
             if user_id:
+                if len(_AUTH_CACHE) >= _AUTH_CACHE_MAX:
+                    _AUTH_CACHE.pop(next(iter(_AUTH_CACHE)), None)
+                _AUTH_CACHE[auth_header] = (now, user_id, user)
                 return user_id, "auth", user
+        _AUTH_CACHE.pop(auth_header, None)
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
 
     if guest_id:
@@ -256,6 +271,8 @@ def _claim_legacy_rows(db, owner_id: str) -> None:
     has_owned_expenses = db.query(Expense.id).filter(Expense.owner_id == owner_id).first() is not None
     has_owned_settings = db.query(AccountSettings.id).filter(AccountSettings.owner_id == owner_id).first() is not None
 
+    changed = False
+
     if not has_owned_expenses:
         legacy_expenses = (
             db.query(Expense)
@@ -265,6 +282,7 @@ def _claim_legacy_rows(db, owner_id: str) -> None:
         )
         for expense in legacy_expenses:
             expense.owner_id = owner_id
+            changed = True
 
     if not has_owned_settings:
         legacy_settings = (
@@ -278,7 +296,10 @@ def _claim_legacy_rows(db, owner_id: str) -> None:
             primary.owner_id = owner_id
             for extra in extras:
                 db.delete(extra)
-    db.commit()
+            changed = True
+
+    if changed:
+        db.commit()
 
 
 def _settings_payload(settings: AccountSettings) -> "AccountSettingsResponse":
@@ -480,7 +501,7 @@ def update_account_settings(request: Request, payload: AccountSettingsUpdate, db
         settings = AccountSettings(owner_id=owner_id)
         db.add(settings)
 
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     if "display_name" in update_data:
         settings.display_name = update_data["display_name"]
     if "email" in update_data:
@@ -569,7 +590,7 @@ def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends
             _attach_items(existing)
             return existing
 
-    payload = expense.dict(exclude={"items"})
+    payload = expense.model_dump(exclude={"items"})
     payload["owner_id"] = owner_id
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
@@ -595,7 +616,7 @@ def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate, db
     if db_expense is None:
         raise HTTPException(status_code=404, detail="Expense not found")
 
-    update_data = expense.dict(exclude_unset=True, exclude={"items"})
+    update_data = expense.model_dump(exclude_unset=True, exclude={"items"})
     if "image_path" in update_data and update_data["image_path"]:
         update_data["image_path"] = _normalize_image_path(update_data["image_path"])
         _validate_image_path(update_data["image_path"])

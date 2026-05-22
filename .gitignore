@@ -2,10 +2,13 @@
 .env.local
 .env.*.local
 backend/venv/
-backend/__pycache__/
+backend/.venv/
+__pycache__/
 backend/smartspend.db
+backend/test_smartspend.db
 backend/uploads/
 uploads/
+.impeccable/
 /node_modules/
 /dist/
 /.netlify/

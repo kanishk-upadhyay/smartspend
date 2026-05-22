@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import type { Session } from '@supabase/supabase-js';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import {
   Upload,
   History,
@@ -18,12 +19,14 @@ import {
   MoonStar,
   SunMedium,
   ShieldCheck,
+  X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   PieChart,
   Pie,
   Cell,
-  ResponsiveContainer,
   Tooltip as RechartsTooltip,
   BarChart,
   Bar,
@@ -57,7 +60,7 @@ interface Expense {
   source_currency?: string;
   raw_total_amount?: number;
   receipt_date?: string;
-  fx_rate_date?: string;
+  fx_rate_date?: string | null;
   currency_warning?: string | null;
   item_warning?: string | null;
   items?: { name: string; amount: number; raw_amount?: number; currency?: string; source_currency?: string; fx_rate_date?: string; qty?: number }[];
@@ -86,7 +89,7 @@ interface ExtractedData {
   source_currency?: string;
   raw_total_amount?: number;
   receipt_date?: string;
-  fx_rate_date?: string;
+  fx_rate_date?: string | null;
   detected_currencies?: string[];
   currency_warning?: string | null;
   item_warning?: string | null;
@@ -111,16 +114,19 @@ const SLICE_COLORS_LIGHT = [
   'oklch(40% 0 0)',
   'oklch(55% 0 0)',
   'oklch(70% 0 0)',
+  'oklch(82% 0 0)',
 ];
 const SLICE_COLORS_DARK = [
-  'oklch(58% 0.22 350)',
-  'oklch(65% 0 0)',
-  'oklch(55% 0 0)',
-  'oklch(40% 0 0)',
-  'oklch(28% 0 0)',
+  'oklch(68% 0.22 350)',
+  'oklch(78% 0.01 350)',
+  'oklch(64% 0.01 350)',
+  'oklch(50% 0.01 350)',
+  'oklch(38% 0.01 350)',
+  'oklch(30% 0.01 350)',
 ];
 const ACCENT_LIGHT = 'oklch(60% 0.25 350)';
-const ACCENT_DARK = 'oklch(58% 0.22 350)';
+const ACCENT_DARK = 'oklch(68% 0.22 350)';
+const ACCENT_MUTED = 'oklch(60% 0.12 350)';
 const TEXT_DIM_LIGHT = 'oklch(55% 0 0)';
 const TEXT_DIM_DARK = 'oklch(78% 0 0)';
 const GRID_STROKE_LIGHT = 'oklch(92% 0 0)';
@@ -182,15 +188,27 @@ const fileToBase64 = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const _moneyFmt = new Map<string, Intl.NumberFormat>();
 const formatMoney = (amount: number, currency = DEFAULT_CURRENCY) => {
   try {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 2,
-    }).format(Number.isFinite(amount) ? amount : 0);
+    let fmt = _moneyFmt.get(currency);
+    if (!fmt) {
+      fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 });
+      _moneyFmt.set(currency, fmt);
+    }
+    return fmt.format(Number.isFinite(amount) ? amount : 0);
   } catch {
     return `${currency} ${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
+  }
+};
+
+const _dateFmt = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const formatDate = (iso: string) => {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || 'Unknown';
+  try {
+    return _dateFmt.format(new Date(`${iso}T00:00:00`));
+  } catch {
+    return iso;
   }
 };
 
@@ -220,6 +238,104 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 
 type View = 'dashboard' | 'analytics' | 'history' | 'account';
 
+// Number inputs hold raw strings (so the field can be cleared); coerce at the
+// save boundary so the backend never persists a string in a numeric column.
+const coerceItems = (items: Expense['items']) =>
+  (items ?? []).map(i => ({
+    ...i,
+    amount: Number(i.amount) || 0,
+    qty: i.qty == null || (i.qty as unknown as string) === '' ? undefined : Number(i.qty),
+  }));
+
+// Stable signature of the user-editable fields, type-normalized so a number that
+// became a string while typing doesn't read as a change.
+const editSignature = (e: Expense) =>
+  JSON.stringify({
+    vendor: e.vendor,
+    date: e.date,
+    category: e.category,
+    currency: e.currency ?? '',
+    total_amount: Number(e.total_amount) || 0,
+    items: coerceItems(e.items),
+  });
+
+// Window-scroll virtualizer: renders only visible rows while keeping the app's
+// single-document scroll (no inner scrollbox), so large receipt lists stay fast.
+function WindowVirtualList<T>({
+  items,
+  estimateSize,
+  getKey,
+  renderItem,
+}: {
+  items: T[];
+  estimateSize: number;
+  getKey: (item: T) => React.Key;
+  renderItem: (item: T) => React.ReactNode;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      if (parentRef.current) setScrollMargin(parentRef.current.offsetTop);
+    };
+    measure();
+    // Content above the list (e.g. a collapsible filter panel) can change the
+    // list's offset without changing item count, which would leave rows misaligned.
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    return () => ro.disconnect();
+  }, [items.length]);
+  const virtualizer = useWindowVirtualizer({
+    count: items.length,
+    estimateSize: () => estimateSize,
+    overscan: 8,
+    scrollMargin,
+  });
+  return (
+    <div ref={parentRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+      {virtualizer.getVirtualItems().map(vi => (
+        <div
+          key={getKey(items[vi.index])}
+          data-index={vi.index}
+          ref={virtualizer.measureElement}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
+          }}
+        >
+          {renderItem(items[vi.index])}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Measures its own box and hands concrete pixel dimensions to the chart, so we
+// never feed Recharts the width(-1) sentinel that ResponsiveContainer logs about.
+// The fixed-height className means the box has a real size on first layout.
+function ChartFrame({ className, ariaLabel, children }: { className: string; ariaLabel: string; children: (w: number, h: number) => React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      if (r.width > 0 && r.height > 0) setSize({ w: Math.round(r.width), h: Math.round(r.height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className={className} role="img" aria-label={ariaLabel}>
+      {size.w > 0 && size.h > 0 ? children(size.w, size.h) : null}
+    </div>
+  );
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -245,6 +361,7 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
   const deletionTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const editOriginalRef = useRef<string | null>(null);
   const saveLockRef = useRef(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(getStoredThemePreference);
   const [authReady, setAuthReady] = useState(false);
@@ -253,6 +370,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authName, setAuthName] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -424,6 +542,14 @@ export default function App() {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [expenses]);
+
+  // Cap donut at 6 slices (top 5 + Other) so slice colors never repeat.
+  const donutData = useMemo(() => {
+    if (chartData.length <= 6) return chartData;
+    const top = chartData.slice(0, 5);
+    const otherValue = chartData.slice(5).reduce((sum, d) => sum + d.value, 0);
+    return [...top, { name: 'Other', value: otherValue }];
+  }, [chartData]);
 
   const timeSeriesData = useMemo(() => {
     const daily: Record<string, number> = {};
@@ -701,12 +827,19 @@ export default function App() {
     }
   };
 
+  const closeEdit = useCallback(() => {
+    if (editDraft && editOriginalRef.current && editSignature(editDraft) !== editOriginalRef.current) {
+      if (!window.confirm('Discard unsaved changes to this receipt?')) return;
+    }
+    setEditDraft(null);
+  }, [editDraft]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       if (editDraft) {
-        setEditDraft(null);
+        closeEdit();
       } else if (showItemsModal) {
         setShowItemsModal(false);
       } else if (showHeicHelper) {
@@ -715,7 +848,17 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editDraft, showHeicHelper, showItemsModal]);
+  }, [editDraft, showHeicHelper, showItemsModal, closeEdit]);
+
+  useEffect(() => {
+    if (!editDraft && !result) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [editDraft, result]);
 
   const runOcr = useCallback(async (file: File) => {
     setLoading(true);
@@ -934,7 +1077,7 @@ export default function App() {
         fx_rate_date: result.extracted_data.fx_rate_date || null,
         currency_warning: result.extracted_data.currency_warning || null,
         item_warning: result.extracted_data.item_warning || null,
-        items: result.extracted_data.items || [],
+        items: coerceItems(result.extracted_data.items),
         image_path: result.image_path || null,
       };
       await axios.post(`${API_URL}/expenses`, payload, requestConfig);
@@ -971,23 +1114,29 @@ export default function App() {
   };
 
   const handleEditExpense = (exp: Expense) => {
+    editOriginalRef.current = editSignature(exp);
     setEditDraft({ ...exp });
   };
 
   const saveEdit = async () => {
     if (!editDraft) return;
+    // A manual edit makes the entered total authoritative in the display currency,
+    // so the converted/source pair stays consistent (drop the stale FX linkage).
+    const editedTotal = Number(editDraft.total_amount) || 0;
+    const editedCurrency = editDraft.currency || DEFAULT_CURRENCY;
     const payload: Partial<Expense> = {
       vendor: editDraft.vendor,
-      total_amount: Number(editDraft.total_amount),
+      total_amount: editedTotal,
       date: editDraft.date,
       category: editDraft.category,
-      currency: editDraft.currency || DEFAULT_CURRENCY,
-      source_currency: editDraft.source_currency || editDraft.currency || DEFAULT_CURRENCY,
-      raw_total_amount: editDraft.raw_total_amount ?? editDraft.total_amount,
+      currency: editedCurrency,
+      source_currency: editedCurrency,
+      raw_total_amount: editedTotal,
       receipt_date: editDraft.receipt_date || editDraft.date,
-      fx_rate_date: editDraft.fx_rate_date || undefined,
-      currency_warning: editDraft.currency_warning || undefined,
-      items: editDraft.items || [],
+      fx_rate_date: null,
+      currency_warning: editDraft.currency_warning || null,
+      item_warning: editDraft.item_warning || null,
+      items: coerceItems(editDraft.items),
     };
     try {
       await axios.put(`${API_URL}/expenses/${editDraft.id}`, payload, requestConfig);
@@ -1098,7 +1247,7 @@ export default function App() {
             <p className="micro-label">Session</p>
             <div className="flex items-center gap-3">
               {accountDraft.avatarUrl ? (
-                <img src={accountDraft.avatarUrl} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
+                <img src={accountDraft.avatarUrl} alt="" width={24} height={24} className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
               ) : (
                 <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
               )}
@@ -1125,7 +1274,7 @@ export default function App() {
             >
               <span aria-hidden="true" className={`inline-block w-1.5 h-1.5 transition-opacity duration-150 ${currentView === 'account' ? 'opacity-100' : 'opacity-0'}`} style={{ backgroundColor: 'var(--color-accent)' }} />
               {accountDraft.avatarUrl ? (
-                <img src={accountDraft.avatarUrl} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                <img src={accountDraft.avatarUrl} alt="" width={16} height={16} className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
               ) : (
                 <CircleUserRound className="w-4 h-4" />
               )}
@@ -1250,7 +1399,7 @@ export default function App() {
                                 <embed src={getReceiptUrl(result.image_path)} type="application/pdf" className="w-full h-64" />
                               ) : (
                                 <a href={getReceiptUrl(result.image_path)} target="_blank" rel="noreferrer" className="block">
-                                  <img src={getReceiptUrl(result.image_path)} alt={currentFileName || pendingFiles[0]?.name || 'Receipt'} className="max-h-64 object-contain mx-auto" />
+                                  <img src={getReceiptUrl(result.image_path)} alt={currentFileName || pendingFiles[0]?.name || 'Receipt'} loading="lazy" className="max-h-64 object-contain mx-auto" />
                                 </a>
                               )}
                             </div>
@@ -1283,6 +1432,7 @@ export default function App() {
                                 <input
                                   type="number"
                                   step="any"
+                                  inputMode="decimal"
                                   value={result.extracted_data.total_amount}
                                   onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, total_amount: e.target.value as unknown as number } })}
                                   className="input-editorial"
@@ -1334,7 +1484,7 @@ export default function App() {
                               )}
 
                               {shouldShowCurrencyNotice && (
-                                <div className="mb-6 pl-4 border-l border-[var(--color-accent)]">
+                                <div className="mb-6 p-4 border border-[var(--color-paper-mist)] bg-[var(--color-accent-dim)]" style={{ borderRadius: 'var(--radius-md)' }}>
                                   <p className="micro-label text-[var(--color-accent)]">Currency changed</p>
                                   <p className="font-body text-sm text-[var(--color-soft-charcoal)] mt-2">
                                     Detected {currentReceiptSourceCurrency}. Last receipt was {lastReceiptCurrency || 'not recorded'}.
@@ -1380,6 +1530,7 @@ export default function App() {
                                     <input
                                       type="number"
                                       step="any"
+                                      inputMode="decimal"
                                       className="input-editorial col-span-2"
                                       value={it.qty ?? ''}
                                       placeholder="—"
@@ -1388,6 +1539,7 @@ export default function App() {
                                     <input
                                       type="number"
                                       step="any"
+                                      inputMode="decimal"
                                       className="input-editorial col-span-3"
                                       value={it.amount}
                                       onChange={(e) => setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.map((x, i) => i === idx ? { ...x, amount: e.target.value as unknown as number } : x) } }) : r)}
@@ -1398,9 +1550,9 @@ export default function App() {
                                         e.stopPropagation();
                                         setResult(r => r ? ({ ...r, extracted_data: { ...r.extracted_data, items: r.extracted_data.items?.filter((_, i) => i !== idx) } }) : r);
                                       }}
-                                      className="btn-text col-span-1 justify-self-end"
+                                      className="btn-text tap-target col-span-1 justify-self-end"
                                     >
-                                      ✕
+                                      <X className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                 ))}
@@ -1474,41 +1626,47 @@ export default function App() {
                 </header>
 
                 {chartData.length === 0 ? (
-                  <p className="font-body text-base text-[var(--color-soft-charcoal)] italic">
-                    Save a receipt to see allocation and trend.
-                  </p>
+                  <div className="py-16 sm:py-24">
+                    <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(2rem, 5vw, 3.25rem)' }}>
+                      Nothing yet.
+                    </p>
+                    <p className="title-italic mt-3 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }}>
+                      Your spending patterns will appear here once you save a receipt.
+                    </p>
+                    <p className="font-body text-sm text-[var(--color-mid-ash)] mt-5">
+                      Drop your first receipt on the Dashboard.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="space-y-20">
-                    {/* Top-line stats */}
-                    <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-8 sm:gap-y-10 pb-10 sm:pb-12 border-b border-[var(--color-paper-mist)]">
-                      <div>
-                        <p className="micro-label mb-2">Total spent</p>
-                        <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}>
-                          {formatMoney(totalSpent, DEFAULT_CURRENCY)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="micro-label mb-2">Receipts</p>
-                        <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}>
-                          {expenses.length}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="micro-label mb-2">Average</p>
-                        <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}>
-                          {formatMoney(totalSpent / (expenses.length || 1), DEFAULT_CURRENCY)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="micro-label mb-2">Largest</p>
-                        <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}>
-                          {largestReceipt ? formatMoney(largestReceipt.total_amount, largestReceipt.currency || DEFAULT_CURRENCY) : '—'}
-                        </p>
-                        {largestReceipt && (
-                          <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-1 truncate">
-                            {largestReceipt.vendor}
-                          </p>
-                        )}
+                  <div className="space-y-12 sm:space-y-16 lg:space-y-20">
+                    {/* Top-line: total as an editorial statement, supporting metrics demoted */}
+                    <section className="pb-10 sm:pb-12 border-b border-[var(--color-paper-mist)]">
+                      <p className="micro-label mb-3">Total spent</p>
+                      <p className="display-italic text-[var(--color-accent)]" style={{ fontSize: 'clamp(2.75rem, 8vw, 5rem)' }}>
+                        {formatMoney(totalSpent, DEFAULT_CURRENCY)}
+                      </p>
+                      <p className="title-italic mt-2 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }}>
+                        across {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'}.
+                      </p>
+
+                      <div className="mt-8 sm:mt-10 flex flex-wrap gap-x-12 gap-y-4">
+                        <div className="flex items-baseline gap-3">
+                          <span className="micro-label">Average</span>
+                          <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] tabular-nums">
+                            {formatMoney(totalSpent / (expenses.length || 1), DEFAULT_CURRENCY)}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-3 min-w-0">
+                          <span className="micro-label">Largest</span>
+                          <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] tabular-nums">
+                            {largestReceipt ? formatMoney(largestReceipt.total_amount, largestReceipt.currency || DEFAULT_CURRENCY) : '—'}
+                          </span>
+                          {largestReceipt && (
+                            <span className="font-body text-sm text-[var(--color-mid-ash)] italic truncate">
+                              {largestReceipt.vendor}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </section>
 
@@ -1516,11 +1674,14 @@ export default function App() {
                     <section>
                       <p className="micro-label mb-6">By category</p>
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-                        <div className="lg:col-span-5 h-[280px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
-                            <PieChart>
+                        <ChartFrame
+                          className="lg:col-span-5 h-[280px] min-w-0"
+                          ariaLabel={`Spending by category: ${donutData.map(d => `${d.name} ${totalSpent > 0 ? Math.round((d.value / totalSpent) * 100) : 0}%`).join(', ')}.`}
+                        >
+                          {(w, h) => (
+                            <PieChart width={w} height={h}>
                               <Pie
-                                data={chartData}
+                                data={donutData}
                                 cx="50%"
                                 cy="50%"
                                 innerRadius={80}
@@ -1529,7 +1690,7 @@ export default function App() {
                                 dataKey="value"
                                 stroke="none"
                               >
-                                {chartData.map((_, index) => (
+                                {donutData.map((_, index) => (
                                   <Cell key={`cell-${index}`} fill={SLICE_COLORS[index % SLICE_COLORS.length]} />
                                 ))}
                               </Pie>
@@ -1540,16 +1701,16 @@ export default function App() {
                                 formatter={(v: unknown, name: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), String(name)]}
                               />
                             </PieChart>
-                          </ResponsiveContainer>
-                        </div>
+                          )}
+                        </ChartFrame>
 
                         <div className="lg:col-span-7 space-y-1">
-                          {chartData.map((d, i) => {
+                          {donutData.map((d, i) => {
                             const pct = totalSpent > 0 ? Math.round((d.value / totalSpent) * 100) : 0;
                             return (
                               <div key={i} className="flex items-baseline justify-between gap-4 py-3 border-b border-[var(--color-paper-mist)]">
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <span className="block w-2.5 h-2.5 flex-shrink-0" style={{ backgroundColor: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                                  <span className="block w-2.5 h-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SLICE_COLORS[i % SLICE_COLORS.length] }} />
                                   <span className="font-body text-base text-[var(--color-deep-graphite)] truncate">{d.name}</span>
                                 </div>
                                 <div className="flex items-baseline gap-4 flex-shrink-0">
@@ -1576,9 +1737,9 @@ export default function App() {
                           Receipts need parsable dates to plot a timeline. Edit a receipt's date to add it here.
                         </p>
                       ) : (
-                        <div className="h-[280px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
-                            <BarChart data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
+                        <ChartFrame className="h-[280px] min-w-0" ariaLabel={`Daily spending over the last ${timeSeriesData.length} ${timeSeriesData.length === 1 ? 'day' : 'days'}.`}>
+                          {(w, h) => (
+                            <BarChart width={w} height={h} data={timeSeriesData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="label"
@@ -1602,10 +1763,10 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={20} isAnimationActive animationDuration={600} />
+                              <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={20} isAnimationActive animationDuration={400} />
                             </BarChart>
-                          </ResponsiveContainer>
-                        </div>
+                          )}
+                        </ChartFrame>
                       )}
                     </section>
 
@@ -1620,9 +1781,9 @@ export default function App() {
                             </span>
                           )}
                         </div>
-                        <div className="h-[240px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
-                            <BarChart data={weekdayData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
+                        <ChartFrame className="h-[240px] min-w-0" ariaLabel={busiestWeekday ? `Spending by weekday, busiest on ${busiestWeekday.day}.` : 'Spending by weekday.'}>
+                          {(w, h) => (
+                            <BarChart width={w} height={h} data={weekdayData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="day"
@@ -1648,10 +1809,10 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={22} isAnimationActive animationDuration={600} />
+                              <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={22} isAnimationActive animationDuration={400} />
                             </BarChart>
-                          </ResponsiveContainer>
-                        </div>
+                          )}
+                        </ChartFrame>
                         {busiestWeekday && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
                             You spend most on {busiestWeekday.day}s — {formatMoney(busiestWeekday.amount, DEFAULT_CURRENCY)} across {busiestWeekday.count} {busiestWeekday.count === 1 ? 'receipt' : 'receipts'}.
@@ -1669,9 +1830,9 @@ export default function App() {
                             {monthlyData.length} {monthlyData.length === 1 ? 'month' : 'months'}
                           </span>
                         </div>
-                        <div className="h-[260px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                            <BarChart data={monthlyData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
+                        <ChartFrame className="h-[260px] min-w-0" ariaLabel={`Spending by month across ${monthlyData.length} ${monthlyData.length === 1 ? 'month' : 'months'}.`}>
+                          {(w, h) => (
+                            <BarChart width={w} height={h} data={monthlyData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={GRID_STROKE} />
                               <XAxis
                                 dataKey="label"
@@ -1696,11 +1857,11 @@ export default function App() {
                                 }}
                                 formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
                               />
-                              <Bar dataKey="amount" fill={ACCENT} radius={[2, 2, 0, 0]} barSize={26} isAnimationActive animationDuration={600} />
+                              <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={26} isAnimationActive animationDuration={400} />
                               <ReferenceLine y={monthlyAvg} stroke={TEXT_DIM} strokeDasharray="4 3" strokeWidth={1} label={{ value: 'avg', position: 'insideTopRight', fill: TEXT_DIM, fontSize: 10, fontFamily: 'Instrument Sans, sans-serif' }} />
                             </BarChart>
-                          </ResponsiveContainer>
-                        </div>
+                          )}
+                        </ChartFrame>
                         {monthOverMonthDelta && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
                             {monthOverMonthDelta.delta >= 0 ? 'Up' : 'Down'} {formatMoney(Math.abs(monthOverMonthDelta.delta), DEFAULT_CURRENCY)} ({monthOverMonthDelta.pct >= 0 ? '+' : ''}{monthOverMonthDelta.pct.toFixed(0)}%) versus {monthOverMonthDelta.prior.label}.
@@ -1720,9 +1881,9 @@ export default function App() {
                             </span>
                           )}
                         </div>
-                        <div className="h-[260px] min-w-0">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                            <AreaChart data={cumulativeData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
+                        <ChartFrame className="h-[260px] min-w-0" ariaLabel={`Cumulative spending trajectory${cumulativeSpan ? ` over ${cumulativeSpan.days} ${cumulativeSpan.days === 1 ? 'day' : 'days'}` : ''}.`}>
+                          {(w, h) => (
+                            <AreaChart width={w} height={h} data={cumulativeData} margin={{ top: 12, right: 0, left: 0, bottom: 0 }} syncId="analytics">
                               <defs>
                                 <linearGradient id="trajectoryGradient" x1="0" y1="0" x2="0" y2="1">
                                   <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
@@ -1762,11 +1923,11 @@ export default function App() {
                                 strokeWidth={2}
                                 fill="url(#trajectoryGradient)"
                                 isAnimationActive
-                                animationDuration={600}
+                                animationDuration={400}
                               />
                             </AreaChart>
-                          </ResponsiveContainer>
-                        </div>
+                          )}
+                        </ChartFrame>
                         {cumulativeSpan && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
                             Averaging {formatMoney(cumulativeSpan.perDay, DEFAULT_CURRENCY)} per day across this window.
@@ -1796,10 +1957,10 @@ export default function App() {
                                     {formatMoney(m.total, DEFAULT_CURRENCY)}
                                   </span>
                                 </div>
-                                <div className="h-px bg-[var(--color-paper-mist)] relative">
+                                <div className="h-0.5 bg-[var(--color-paper-mist)] rounded-full overflow-hidden mt-2">
                                   <div
-                                    className="absolute inset-y-0 left-0"
-                                    style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: 'var(--color-accent)', height: '2px', top: '-1px' }}
+                                    className="h-full rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: 'var(--color-accent)' }}
                                   />
                                 </div>
                               </div>
@@ -1899,13 +2060,24 @@ export default function App() {
                             )}
                             <div>
                               <label className="micro-label block mb-2">Password</label>
-                              <input
-                                value={authPassword}
-                                onChange={(e) => setAuthPassword(e.target.value)}
-                                type="password"
-                                autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'}
-                                className="input-editorial"
-                              />
+                              <div className="relative">
+                                <input
+                                  value={authPassword}
+                                  onChange={(e) => setAuthPassword(e.target.value)}
+                                  type={showPassword ? 'text' : 'password'}
+                                  autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'}
+                                  className="input-editorial pr-12"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPassword(v => !v)}
+                                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                  aria-pressed={showPassword}
+                                  className="tap-target absolute right-1 top-1/2 -translate-y-1/2 flex items-center text-[var(--color-mid-ash)] hover:text-[var(--color-accent)] transition-colors"
+                                >
+                                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </div>
                           </div>
 
@@ -2031,7 +2203,7 @@ export default function App() {
                                 aria-label={removable ? `Remove ${cat}` : `${cat} is built in`}
                               >
                                 {cat}
-                                {removable && <span aria-hidden="true">×</span>}
+                                {removable && <X aria-hidden="true" className="w-3 h-3" />}
                               </button>
                             );
                           })}
@@ -2162,11 +2334,18 @@ export default function App() {
                         className="w-full text-left border border-[var(--color-paper-mist)] p-4 bg-[var(--color-surface)]"
                         style={{ borderRadius: 'var(--radius-md)' }}
                       >
-                        <p className="font-body text-base font-medium text-[var(--color-deep-graphite)] truncate">{exp.vendor}</p>
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <p className="font-body text-base font-medium text-[var(--color-deep-graphite)] truncate">{exp.vendor}</p>
+                          {exp.source_currency && exp.source_currency !== (exp.currency || DEFAULT_CURRENCY) && (
+                            <span className="font-mono text-xs text-[var(--color-accent)] uppercase tracking-[0.1em] flex-shrink-0">
+                              {exp.source_currency}→{exp.currency || DEFAULT_CURRENCY}
+                            </span>
+                          )}
+                        </div>
                         <p className="font-body text-sm text-[var(--color-soft-charcoal)] italic mt-1">{exp.category}</p>
                         <div className="mt-3 flex items-center justify-between gap-3">
-                          <span className="font-mono text-xs text-[var(--color-mid-ash)]">{exp.date}</span>
-                          <span className="font-body text-base font-medium text-[var(--color-deep-graphite)]">
+                          <span className="font-mono text-xs text-[var(--color-mid-ash)] tabular-nums">{formatDate(exp.date)}</span>
+                          <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] tabular-nums">
                             {formatMoney(exp.total_amount, exp.currency || DEFAULT_CURRENCY)}
                           </span>
                         </div>
@@ -2180,9 +2359,12 @@ export default function App() {
                       <p className="micro-label col-span-2">Date</p>
                       <p className="micro-label col-span-2 text-right">Amount</p>
                     </div>
-                    {filteredExpenses.map((exp) => (
+                    <WindowVirtualList
+                      items={filteredExpenses}
+                      estimateSize={65}
+                      getKey={(exp) => exp.id}
+                      renderItem={(exp) => (
                       <button
-                        key={exp.id}
                         onClick={() => {
                           setSelectedExpense(exp);
                           const sourceCurrency = exp.source_currency || exp.currency || DEFAULT_CURRENCY;
@@ -2205,14 +2387,15 @@ export default function App() {
                         <div className="col-span-3 font-body text-sm text-[var(--color-soft-charcoal)] italic truncate">
                           {exp.category}
                         </div>
-                        <div className="col-span-2 font-mono text-xs text-[var(--color-mid-ash)]">
-                          {exp.date}
+                        <div className="col-span-2 font-mono text-xs text-[var(--color-mid-ash)] tabular-nums">
+                          {formatDate(exp.date)}
                         </div>
-                        <div className="col-span-2 text-right font-body text-base font-medium text-[var(--color-deep-graphite)]">
+                        <div className="col-span-2 text-right font-body text-base font-medium text-[var(--color-deep-graphite)] tabular-nums">
                           {formatMoney(exp.total_amount, exp.currency || DEFAULT_CURRENCY)}
                         </div>
                       </button>
-                    ))}
+                    )}
+                    />
                   </div>
                   </>
                 )}
@@ -2222,7 +2405,7 @@ export default function App() {
 
           {/* HEIC helper dialog */}
           {showHeicHelper && (
-            <div role="dialog" aria-modal="true" aria-labelledby="heic-helper-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+            <div role="dialog" aria-modal="true" aria-labelledby="heic-helper-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto overscroll-contain">
               <button
                 type="button"
                 aria-label="Close HEIC help dialog"
@@ -2264,7 +2447,7 @@ export default function App() {
 
           {/* Receipt details modal */}
           {showItemsModal && selectedExpense && (
-            <div role="dialog" aria-modal="true" aria-labelledby="receipt-details-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+            <div role="dialog" aria-modal="true" aria-labelledby="receipt-details-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto overscroll-contain">
               <button
                 type="button"
                 aria-label="Close receipt details dialog"
@@ -2289,8 +2472,8 @@ export default function App() {
                     <p className="micro-label mb-3">Receipt</p>
                     <h3 id="receipt-details-title" className="headline text-3xl text-[var(--color-deep-graphite)]">{selectedExpense.vendor}</h3>
                     <p className="font-body text-sm text-[var(--color-mid-ash)] mt-2">
-                      {selectedExpense.receipt_date || selectedExpense.date}
-                      {selectedExpense.fx_rate_date && <> · FX {selectedExpense.fx_rate_date}</>}
+                      {formatDate(selectedExpense.receipt_date || selectedExpense.date)}
+                      {selectedExpense.fx_rate_date && <> · FX {formatDate(selectedExpense.fx_rate_date)}</>}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end">
@@ -2305,7 +2488,7 @@ export default function App() {
                       <embed src={getReceiptUrl(selectedExpense.image_path)} type="application/pdf" className="w-full h-72" />
                     ) : (
                       <a href={getReceiptUrl(selectedExpense.image_path)} target="_blank" rel="noreferrer" className="block">
-                        <img src={getReceiptUrl(selectedExpense.image_path)} alt={`Receipt for ${selectedExpense.vendor}`} className="max-h-80 object-contain mx-auto" />
+                        <img src={getReceiptUrl(selectedExpense.image_path)} alt={`Receipt for ${selectedExpense.vendor}`} loading="lazy" className="max-h-80 object-contain mx-auto" />
                       </a>
                     )}
                   </div>
@@ -2371,12 +2554,12 @@ export default function App() {
 
           {/* Edit modal */}
           {editDraft && (
-            <div role="dialog" aria-modal="true" aria-labelledby="edit-receipt-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+            <div role="dialog" aria-modal="true" aria-labelledby="edit-receipt-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto overscroll-contain">
               <button
                 type="button"
                 aria-label="Close edit receipt dialog"
                 className="absolute inset-0 border-0 bg-black/40 p-0"
-                onClick={() => setEditDraft(null)}
+                onClick={closeEdit}
               />
               <div
                 className="relative z-10 w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-5 sm:p-10 mt-2 sm:mt-0"
@@ -2384,7 +2567,7 @@ export default function App() {
               >
                 <div className="flex justify-end mb-3">
                   <button
-                    onClick={() => setEditDraft(null)}
+                    onClick={closeEdit}
                     aria-label="Close"
                     className="btn-text"
                   >
@@ -2413,6 +2596,7 @@ export default function App() {
                       <input
                         type="number"
                         step="any"
+                        inputMode="decimal"
                         className="input-editorial"
                         value={editDraft.total_amount}
                         onChange={(e) => setEditDraft(d => d ? { ...d, total_amount: e.target.value as unknown as number } : d)}
@@ -2446,7 +2630,7 @@ export default function App() {
                 </div>
 
                 <div className="mt-10 flex flex-col-reverse sm:flex-row justify-end gap-3">
-                  <button onClick={() => setEditDraft(null)} className="btn-quiet btn--sm">Cancel</button>
+                  <button onClick={closeEdit} className="btn-quiet btn--sm">Cancel</button>
                   <button onClick={saveEdit} className="btn-primary btn--sm">Save changes</button>
                 </div>
               </div>
@@ -2481,9 +2665,9 @@ export default function App() {
                   <button
                     onClick={() => dismissToast(t.id)}
                     aria-label="Dismiss"
-                    className="btn-text flex-shrink-0"
+                    className="btn-text tap-target flex-shrink-0"
                   >
-                    ✕
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </motion.div>
               ))}

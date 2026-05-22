@@ -13,7 +13,7 @@
   --color-warm-ash-cream:          oklch(96% 0.005 350);
   --color-crisp-paper-white:       oklch(98% 0 0);
   --color-paper-mist:              oklch(92% 0 0);
-  --color-mid-ash:                 oklch(55% 0 0);
+  --color-mid-ash:                 oklch(50% 0.01 350);
   --color-soft-charcoal:           oklch(25% 0 0);
   --color-deep-graphite:           oklch(10% 0 0);
 
@@ -69,34 +69,41 @@
 }
 
 html[data-theme="dark"] {
+  /* Editorial Sanctuary, after dark: same magenta identity, warm-graphite paper.
+     Every neutral is tinted toward hue 350 so the brand survives the theme flip. */
+
   /* ── Background & Surface ── */
-  --color-bg:        oklch(10% 0.01 280);
-  --color-surface:   oklch(16% 0.01 280);
-  
-  /* ── Text Hierarchy (violet-forward) ── */
-  --color-text:           oklch(96% 0.02 280);       /* Primary: near-white with violet tint */
-  --color-text-dim:       oklch(82% 0.20 290);       /* Secondary: bright violet-lavender */
-  --color-text-label:     oklch(74% 0.14 290);       /* Labels: softer violet */
-  --color-soft-charcoal:  oklch(82% 0.20 290);       /* Bright violet-lavender */
-  
+  --color-bg:        oklch(14% 0.012 350);
+  --color-surface:   oklch(18% 0.014 350);
+
+  /* ── Text Hierarchy (warm neutral, magenta-tinted) ── */
+  --color-text:           oklch(95% 0.008 350);     /* Primary: warm near-white */
+  --color-text-dim:       oklch(74% 0.018 350);      /* Secondary: soft warm grey */
+  --color-text-label:     oklch(64% 0.03 350);       /* Labels: dim magenta-grey */
+  --color-soft-charcoal:  oklch(80% 0.014 350);      /* Body secondary */
+
   /* ── Tertiary & Muted ── */
-  --color-muted:          oklch(62% 0.15 100);       /* Muted: bright lime/chartreuse for contrast */
-  
+  --color-muted:          oklch(60% 0.02 350);
+
   /* ── Borders & Accents ── */
-  --color-border:         oklch(32% 0.02 280);
-  --color-accent:         oklch(70% 0.24 100);       /* Accent: vibrant lime-green */
-  --color-accent-dim:     oklch(70% 0.24 100 / 0.15);
-  
+  --color-border:         oklch(30% 0.015 350);
+  --color-accent:         oklch(68% 0.22 350);        /* Accent: brightened editorial magenta */
+  --color-accent-dim:     oklch(68% 0.22 350 / 0.16);
+
+  /* ── Magenta tints (re-derived for dark) ── */
+  --color-magenta-whisper: oklch(68% 0.22 350 / 0.15);
+  --color-magenta-veil:    oklch(68% 0.22 350 / 0.30);
+
   /* ── Status Colors ── */
-  --color-error:          oklch(75% 0.28 20);        /* Error: bright coral/red */
-  --color-error-bg:       oklch(26% 0.12 20);
-  --color-warning:        oklch(80% 0.22 80);        /* Warning: bright yellow-green */
-  --color-warning-bg:     oklch(26% 0.10 80);
-  
+  --color-error:          oklch(70% 0.20 20);        /* Error: warm coral */
+  --color-error-bg:       oklch(26% 0.10 20);
+  --color-warning:        oklch(78% 0.16 70);        /* Warning: amber */
+  --color-warning-bg:     oklch(26% 0.09 70);
+
   /* ── Legacy token overrides (for backward compatibility) ── */
-  --color-warm-ash-cream:     oklch(10% 0.01 280);       /* bg equivalent */
-  --color-crisp-paper-white:  oklch(16% 0.01 280);       /* surface equivalent */
-  --color-paper-mist:         oklch(32% 0.02 280);       /* border equivalent */
-  --color-mid-ash:            oklch(62% 0.15 100);       /* muted equivalent */
-  --color-deep-graphite:      oklch(96% 0.02 280);       /* text equivalent */
+  --color-warm-ash-cream:     oklch(14% 0.012 350);      /* bg equivalent */
+  --color-crisp-paper-white:  oklch(18% 0.014 350);      /* surface equivalent */
+  --color-paper-mist:         oklch(30% 0.015 350);      /* border equivalent */
+  --color-mid-ash:            oklch(60% 0.02 350);       /* muted equivalent */
+  --color-deep-graphite:      oklch(95% 0.008 350);      /* text equivalent */
 }

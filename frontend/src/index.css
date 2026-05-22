@@ -55,6 +55,11 @@
     padding: 0.5rem;
   }
 
+  /* Kill the legacy 300ms tap delay on every interactive element. */
+  button, a, label, select, input, textarea, [role="button"] {
+    touch-action: manipulation;
+  }
+
   input::placeholder, textarea::placeholder {
     color: var(--color-text-dim);
   }
@@ -234,6 +239,14 @@
 .btn--sm {
   padding: 8px 18px;
   font-size: 0.8125rem;
+}
+
+/* Guarantees a 44x44 touch target for icon-only controls without
+   inflating the visible glyph. */
+.tap-target {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
 }
 
 .checkbox-editorial {

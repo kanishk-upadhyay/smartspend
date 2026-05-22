@@ -51,19 +51,21 @@ Pick the definitively-labeled total (Total, Grand Total, Amount Due), not subtot
 
 
 class ReceiptItem(BaseModel):
-    name: str
-    amount: float
+    name: str = ""
+    amount: float = 0.0
     qty: Optional[float] = None
 
 
+# Defaults let the prompt-only Z.AI backend degrade gracefully when the model
+# omits a field; Gemini's response_schema always populates them.
 class ReceiptData(BaseModel):
-    vendor: str
-    total_amount: float
-    date: str
-    source_currency: str
-    detected_currencies: list[str]
-    items: list[ReceiptItem]
-    category: Category
+    vendor: str = "Unknown"
+    total_amount: float = 0.0
+    date: str = ""
+    source_currency: str = "INR"
+    detected_currencies: list[str] = []
+    items: list[ReceiptItem] = []
+    category: Category = "General"
 
 
 class ReceiptExtractionError(RuntimeError):

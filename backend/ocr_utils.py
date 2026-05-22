@@ -1,21 +1,71 @@
 import json
+import logging
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
-from gemini_extractor import GeminiExtractor
+from gemini_extractor import GeminiExtractor, ReceiptExtractionError
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CURRENCY = "INR"
 MIXED_CURRENCY = "MIXED"
 _FX_CACHE_MAX = 512
 
 
+def _try_build_zai_extractor():
+    """Import and construct ZaiExtractor only if zai-sdk is installed and
+    ZAI_API_KEY is set — returns None silently otherwise so the app still
+    starts with Gemini-only mode."""
+    try:
+        from zai_extractor import ZaiExtractor  # noqa: PLC0415
+        return ZaiExtractor()
+    except RuntimeError as exc:
+        logger.info("Z.AI fallback not configured: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Z.AI fallback unavailable: %s", exc)
+        return None
+
+
 class OCRProcessor:
     def __init__(self):
-        self.extractor = GeminiExtractor()
-        # Only successful lookups are cached so a transient CDN failure doesn't
-        # permanently break FX conversion for that (currency, date) pair.
+        # ── Primary: Gemini (best schema accuracy + PDF support) ──────────
+        self._primary: GeminiExtractor | None = None
+        try:
+            self._primary = GeminiExtractor()
+            logger.info("OCR primary: Gemini model=%s", self._primary.model)
+        except RuntimeError as exc:
+            logger.warning("Gemini primary not configured: %s", exc)
+
+        # ── Fallback: Z.AI GLM-4.6V-Flash (free tier) ────────────────────
+        self._fallback = _try_build_zai_extractor()
+        if self._fallback:
+            logger.info("OCR fallback: Z.AI model=%s", self._fallback.model)
+
+        if not self._primary and not self._fallback:
+            raise RuntimeError(
+                "No OCR backend configured. "
+                "Set GEMINI_API_KEY (primary) and/or ZAI_API_KEY (fallback)."
+            )
+
+        # Only successful FX lookups are cached so a transient CDN failure
+        # doesn't permanently poison the cache for a (currency, date) pair.
         self._fx_cache: dict[tuple[str, str, str], tuple[float, str]] = {}
+
+    def _extract(self, image_path: str):
+        """Try Gemini first; fall back to Z.AI on ReceiptExtractionError."""
+        if self._primary:
+            try:
+                return self._primary.extract(image_path)
+            except ReceiptExtractionError as exc:
+                if not self._fallback:
+                    raise
+                logger.warning(
+                    "Gemini primary failed (%s) — retrying with Z.AI fallback.", exc
+                )
+                return self._fallback.extract(image_path)
+        return self._fallback.extract(image_path)  # type: ignore[union-attr]
 
     def get_historical_rate(self, source_currency, target_currency, receipt_date_iso):
         if source_currency == target_currency:
@@ -54,7 +104,7 @@ class OCRProcessor:
         return None, None, f"Could not fetch historical FX rate for {source_currency} -> {target_currency} on or before {receipt_date_iso}."
 
     def extract_data(self, image_path):
-        receipt = self.extractor.extract(image_path)
+        receipt = self._extract(image_path)
 
         receipt_date_iso = receipt.date or None
         if receipt_date_iso:
@@ -110,7 +160,21 @@ class OCRProcessor:
                     for i in raw_items
                 ]
 
-        item_warning = None if items else "No item rows detected on this receipt."
+        if not items:
+            item_warning = "No item rows detected on this receipt."
+        else:
+            item_sum = sum(i["raw_amount"] for i in raw_items)
+            if (
+                item_sum > 0
+                and raw_total > 0
+                and abs(item_sum - raw_total) / max(raw_total, item_sum) > 0.10
+            ):
+                item_warning = (
+                    f"Line items sum to {item_sum:.2f} but receipt total is "
+                    f"{raw_total:.2f} — verify before saving."
+                )
+            else:
+                item_warning = None
 
         return {
             "vendor": receipt.vendor or "Unknown",
