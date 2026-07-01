@@ -1,9 +1,13 @@
-fastapi
-uvicorn
-python-multipart
-google-genai
+# Runtime dependencies. Upper bounds guard against breaking major upgrades on
+# a fresh install (e.g. the Cloud Run build) without forcing changes to the
+# currently-working versions. Loosen a bound only if a rebuild fails on it.
+fastapi<1
+uvicorn<1
+python-multipart<1
+google-genai>=1,<2
 zai-sdk
-python-dotenv
-sqlalchemy
-psycopg[binary]
-httpx
+python-dotenv>=1,<2
+sqlalchemy>=2,<3
+psycopg[binary]>=3,<4
+httpx<1
+pydantic>=2,<3   # imported directly by the extractors; declare explicitly, not via FastAPI's transitive
