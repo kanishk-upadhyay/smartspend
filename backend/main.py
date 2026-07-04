@@ -46,6 +46,11 @@ FRONTEND_DIST_DIR = os.path.abspath(os.path.join(BACKEND_DIR, "..", "frontend", 
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or ""
 SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "receipts")
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if o.strip()
+]
 SUPABASE_AUTH_USER_URL = f"{SUPABASE_URL}/auth/v1/user" if SUPABASE_URL else ""
 SUPABASE_ADMIN_USER_URL = f"{SUPABASE_URL}/auth/v1/admin/users" if SUPABASE_URL else ""
 
@@ -447,10 +452,11 @@ class AccountSettingsUpdate(BaseModel):
     theme: Optional[str] = None
     custom_categories: Optional[list[str]] = None
 
-# Enable CORS for frontend
+# CORS: the backend serves the frontend same-origin in production. This covers
+# local dev (Vite) and any separately-hosted frontend via the ALLOWED_ORIGINS env.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
