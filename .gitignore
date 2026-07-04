@@ -8,7 +8,6 @@ backend/smartspend.db
 backend/test_smartspend.db
 backend/uploads/
 uploads/
-.impeccable/
 /node_modules/
 /dist/
 /.netlify/
@@ -18,6 +17,3 @@ frontend/dist/
 .DS_Store
 *.pyc
 .pytest_cache/
-.agents/skills/
-.claude/skills/
-skills-lock.json
