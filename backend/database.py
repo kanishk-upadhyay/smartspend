@@ -5,8 +5,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./smartspend.db")
+# Use the psycopg (v3) driver explicitly — that's what requirements installs
+# (psycopg[binary]). A bare postgresql:// URL would default to psycopg2, which
+# isn't installed, so normalize the scheme to postgresql+psycopg://.
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
-    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif SQLALCHEMY_DATABASE_URL.startswith("postgresql://") and "+psycopg" not in SQLALCHEMY_DATABASE_URL.split("://", 1)[0]:
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 engine_kwargs: dict = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
