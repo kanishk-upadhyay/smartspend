@@ -715,12 +715,13 @@ export default function App() {
   const identityLabel = isSignedIn
     ? (session?.user.email || 'Signed in')
     : `Guest ${guestSessionId.slice(-6)}`;
+  const accessToken = session?.access_token;
   const requestConfig = useMemo(() => ({
     headers: {
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       'X-SmartSpend-Guest-Id': guestSessionId,
     },
-  }), [guestSessionId, session?.access_token]);
+  }), [guestSessionId, accessToken]);
 
   const fetchExpenses = useCallback(async () => {
     try {
