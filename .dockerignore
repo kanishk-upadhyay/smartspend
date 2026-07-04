@@ -1,3 +1,4 @@
+# Keep secrets, local data, and build cruft out of the image build context.
 frontend/
 **/venv/
 **/.venv/
@@ -8,4 +9,10 @@ frontend/
 .git/
 .github/
 .remember/
+.claude/
+.agents/
+.netlify/
+**/.env*
+**/uploads/
+uploads/
 *.db
