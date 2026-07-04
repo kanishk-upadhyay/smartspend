@@ -1,0 +1,28 @@
+# Render Blueprint for the SmartSpend FastAPI backend.
+# Deploy: Render dashboard -> New -> Blueprint -> select this repo, then fill in
+# the secrets marked `sync: false` (they are never stored in git).
+services:
+  - type: web
+    name: smartspend-api
+    runtime: python
+    region: singapore          # closest free Render region to India (~70-90ms)
+    plan: free                  # spins down after ~15min idle; ~30-60s cold start
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL          # Supabase -> Session Pooler connection string
+        sync: false
+      - key: SUPABASE_URL          # https://<project-ref>.supabase.co
+        sync: false
+      - key: SUPABASE_KEY          # Supabase service_role key (storage writes + auth admin)
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: receipts
+      - key: GEMINI_API_KEY        # primary OCR
+        sync: false
+      - key: ZAI_API_KEY           # backup OCR (optional)
+        sync: false
