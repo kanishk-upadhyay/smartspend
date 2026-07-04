@@ -1,5 +1,5 @@
 entrypoint = "backend/main.py"
-modules = ["python-3.11", "nodejs-20"]
+modules = ["python-3.11", "nodejs-22"]
 
 [nix]
 channel = "stable-24_05"
