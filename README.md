@@ -1,5 +1,9 @@
 # SmartSpend
 
+[![CI](https://github.com/kanishk-upadhyay/smartspend/actions/workflows/ci.yml/badge.svg)](https://github.com/kanishk-upadhyay/smartspend/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Live demo](https://img.shields.io/badge/live-demo-3b82f6.svg)](https://smartspend--invincible01.replit.app/)
+
 A receipt-scanning expense tracker. Upload a photo or PDF of a receipt and it pulls
 out the vendor, total, date, line items, and currency automatically, sorts the
 expense into a category, and charts your spending over time.
@@ -7,6 +11,14 @@ expense into a category, and charts your spending over time.
 Extraction runs on a vision model (Google Gemini) with a second model
 (Z.AI GLM-4.6V) as an automatic fallback, so scanning keeps working even when the
 primary model is rate-limited or unavailable.
+
+**[▶ Try the live demo](https://smartspend--invincible01.replit.app/)**
+
+<!-- SCREENSHOTS: drop 1–2 images here once captured, e.g.
+![Dashboard](docs/dashboard.png)
+![Receipt scan](docs/scan.png)
+A dashboard shot + a receipt-scan shot is the single biggest credibility lever for this repo. -->
+
 
 ## Features
 
@@ -75,6 +87,28 @@ npm run dev
 
 With no `DATABASE_URL` set, the backend falls back to a local SQLite file, so you can
 run it without provisioning a database.
+
+## Engineering notes
+
+A few decisions I made while building this, and why:
+
+- **Dual-OCR with automatic fallback.** A single vision model fails silently under
+  rate limits. Routing Gemini → Z.AI on error keeps extraction working, and a
+  line-items-vs-total check (flagging >10% mismatch) catches wrong reads instead of
+  trusting the model blindly.
+- **Provider-agnostic database URL.** The app normalizes any `postgres://` /
+  `postgresql://` URL to the `postgresql+psycopg://` (psycopg 3) driver and falls
+  back to SQLite when unset — so the same code runs on Supabase in production and on
+  a laptop with zero setup.
+- **Session pooler over transaction pooler.** Supabase's transaction pooler breaks
+  SQLAlchemy's prepared statements; the app connects through the session pooler
+  (port 5432) with `pool_pre_ping` + `pool_recycle` to survive dropped idle SSL
+  connections.
+- **Per-user isolation.** Every request is scoped by the Supabase-issued JWT, and
+  receipt images are served through short-lived signed URLs rather than public
+  bucket links.
+- **Tested and CI-gated.** The backend ships with a pytest suite and the frontend is
+  linted and type-checked; both run on every push (see the CI badge above).
 
 ## License
 
