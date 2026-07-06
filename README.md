@@ -14,17 +14,16 @@ primary model is rate-limited or unavailable.
 
 **[▶ Try the live demo](https://smartspend--invincible01.replit.app/)**
 
-<!-- SCREENSHOTS: drop 1–2 images here once captured, e.g.
-![Dashboard](docs/dashboard.png)
-![Receipt scan](docs/scan.png)
-A dashboard shot + a receipt-scan shot is the single biggest credibility lever for this repo. -->
+![SmartSpend reading a rotated, handwritten shop bill into structured merchant, total, category, and line items](docs/scan.png)
+
+<p align="center"><em>Reading a rotated, handwritten shop bill straight into merchant, total, category, and line items.</em></p>
 
 
 ## Features
 
 - **Automatic receipt extraction** — vendor, total, date, per-line-item breakdown,
-  and a category suggestion from an image or PDF. Works on printed and handwritten
-  receipts.
+  and a category suggestion from an image or PDF. Handles printed, handwritten, and
+  even rotated or skewed photos.
 - **Dual OCR with fallback** — Gemini first, Z.AI second if it fails. A validation
   step flags receipts where the line items don't sum to the stated total.
 - **Multi-currency** — captures the receipt's original currency and converts to a
@@ -33,6 +32,18 @@ A dashboard shot + a receipt-scan shot is the single biggest credibility lever f
 - **Analytics** — spend by category, daily trend, top merchants, and largest receipts.
 - **Expense management** — edit, delete with undo, search, filter, and CSV export.
 - **Accounts** — email sign-in with per-user data isolation.
+
+## Screenshots
+
+**Analytics** — spend by category, activity and monthly trends, a cumulative
+trajectory, and top merchants.
+
+![Spending analytics](docs/analytics.png)
+
+**Receipts** — every capture in one searchable, CSV-exportable ledger, across
+currencies.
+
+![Receipt ledger](docs/receipts.png)
 
 ## Tech stack
 

@@ -15,3 +15,6 @@ frontend/dist/
 .DS_Store
 *.pyc
 .pytest_cache/
+
+# Playwright MCP scratch
+.playwright-mcp/
