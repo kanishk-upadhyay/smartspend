@@ -45,6 +45,13 @@ currencies.
 
 ![Receipt ledger](docs/receipts.png)
 
+## Light & dark
+
+A full light and dark theme (with a system-follow "Auto" option) — every
+view, chart, and receipt recomposed for either.
+
+![SmartSpend in light and dark mode](docs/theme-split.png)
+
 ## Tech stack
 
 - **Backend** — FastAPI, SQLAlchemy, PostgreSQL, Google Gemini and Z.AI SDKs
