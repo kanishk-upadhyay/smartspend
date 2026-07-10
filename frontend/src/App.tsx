@@ -964,7 +964,7 @@ export default function App() {
         if (error) throw error;
         setAnnouncement(`Signed in as ${email}`);
       } else {
-        const { error } = await client.auth.signUp({
+        const { data, error } = await client.auth.signUp({
           email,
           password: authPassword,
           options: {
@@ -977,6 +977,13 @@ export default function App() {
           },
         });
         if (error) throw error;
+        // With enumeration protection on, Supabase doesn't error on a duplicate
+        // email — it returns a user with an empty `identities` array. Flag it
+        // so people aren't told an account was created when it wasn't.
+        if (data.user && (data.user.identities?.length ?? 0) === 0) {
+          setAuthMode('sign-in');
+          throw new Error('That email is already registered — sign in instead.');
+        }
         setAnnouncement(`Account created for ${email}`);
         setAuthMode('sign-in');
       }
