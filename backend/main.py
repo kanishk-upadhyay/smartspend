@@ -5,6 +5,7 @@ import base64
 import time
 import threading
 from collections import deque
+from datetime import datetime
 from uuid import uuid4
 from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
@@ -547,13 +548,19 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
     account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
-    db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+    migrated = db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+
+    # The frontend POSTs this on every settings load, so on the common no-op
+    # path (no guest rows, no guest settings) nothing actually changes and we
+    # must skip the wasteful Supabase admin write below.
+    changed = bool(migrated)
 
     if account_settings is None:
         account_settings = AccountSettings(owner_id=owner_id)
         db.add(account_settings)
 
     if guest_settings is not None:
+        changed = True
         if not account_settings.display_name:
             account_settings.display_name = guest_settings.display_name
         if not account_settings.email:
@@ -570,7 +577,8 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(account_settings)
-    _sync_supabase_user_metadata(owner_id, account_settings)
+    if changed:
+        _sync_supabase_user_metadata(owner_id, account_settings)
     return _settings_payload(account_settings)
 
 
@@ -672,6 +680,7 @@ def reconvert_expenses(request: Request, db: Session = Depends(get_db)):
     never persisted.
     """
     owner_id, _, _ = _resolve_identity(request)
+    _check_upload_rate(owner_id)
 
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     preferred = (settings.currency if settings and settings.currency else "INR").upper()
@@ -699,8 +708,20 @@ def reconvert_expenses(request: Request, db: Session = Depends(get_db)):
             source_amount = float(expense.total_amount or 0.0)
             source_currency = current_currency
 
+        # Only pass a value that is a valid YYYY-MM-DD. Undated receipts store
+        # the literal "Unknown" in `date` (and NULL in receipt_date), which is
+        # not parseable — passing that raw would crash get_historical_rate and
+        # roll back the whole batch. Anything non-parseable → None, which makes
+        # get_historical_rate return its "date missing" tuple so the row is
+        # counted failed and the loop continues.
+        raw_date = expense.receipt_date or expense.date
+        try:
+            clean_date = datetime.fromisoformat(raw_date).date().isoformat() if raw_date else None
+        except (TypeError, ValueError):
+            clean_date = None
+
         rate, query_date, warning = ocr_engine.get_historical_rate(
-            source_currency, preferred, expense.receipt_date or expense.date
+            source_currency, preferred, clean_date
         )
         if rate is None or query_date is None:
             expense.currency_warning = (

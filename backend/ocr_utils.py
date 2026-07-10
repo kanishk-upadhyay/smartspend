@@ -80,7 +80,12 @@ class OCRProcessor:
             rate, query_date = cached
             return rate, query_date, None
 
-        date_obj = datetime.fromisoformat(receipt_date_iso).date()
+        # Defense in depth: never let an unparseable date crash a caller. A bad
+        # value is treated exactly like a missing one.
+        try:
+            date_obj = datetime.fromisoformat(receipt_date_iso).date()
+        except (TypeError, ValueError):
+            return None, None, "Receipt date invalid, cannot fetch historical FX rate."
         for offset in range(0, 8):
             query_date = (date_obj - timedelta(days=offset)).isoformat()
             url = (

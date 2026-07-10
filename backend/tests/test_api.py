@@ -1001,5 +1001,52 @@ class TestReconvert:
         assert other_row["currency"] == "INR"
         assert other_row["total_amount"] == 700.0
 
+    def test_undated_receipt_fails_gracefully_without_rolling_back_batch(self, client):
+        """An undated receipt (date="Unknown", receipt_date=None) must not crash
+        the batch: it's counted failed with a warning, while a normal receipt in
+        the same call still reconverts and is committed (no rollback)."""
+        from unittest.mock import patch
+        h = {"x-smartspend-guest-id": "guest-recon-undated"}
+        # Undated row: extract_data stores the literal "Unknown" for date.
+        bad_eid = client.post("/expenses", headers=h, json={
+            "vendor": "Undated", "total_amount": 500.0, "date": "Unknown",
+            "receipt_date": None, "currency": "INR", "source_currency": "INR",
+        }).json()["id"]
+        # Normal, convertible row.
+        good_eid = client.post("/expenses", headers=h, json={
+            "vendor": "Chai Point", "total_amount": 830.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
+            "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
+        }).json()["id"]
+        client.put("/account-settings", headers=h, json={"currency": "USD"})
+
+        # Mimic the real get_historical_rate contract: a None date (which the
+        # endpoint must pass for the "Unknown" row) yields the "date missing"
+        # tuple; a valid date converts. This proves the endpoint cleaned the
+        # date rather than passing "Unknown" straight through.
+        def fake_rate(source, target, date_iso):
+            if not date_iso:
+                return None, None, "Receipt date missing, cannot fetch historical FX rate."
+            return 0.012, date_iso, None
+
+        with patch.object(main.ocr_engine, "get_historical_rate", side_effect=fake_rate):
+            r = client.post("/expenses/reconvert", headers=h)
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["reconverted"] == 1
+        assert body["failed"] == 1
+        assert body["skipped"] == 0
+
+        rows = {e["id"]: e for e in client.get("/expenses", headers=h).json()}
+        # Undated row untouched with a warning.
+        assert rows[bad_eid]["currency"] == "INR"
+        assert rows[bad_eid]["total_amount"] == 500.0
+        assert rows[bad_eid]["currency_warning"] is not None
+        # Good row was reconverted AND committed (not rolled back with the batch).
+        assert rows[good_eid]["currency"] == "USD"
+        assert rows[good_eid]["total_amount"] == 9.96
+        assert rows[good_eid]["currency_warning"] is None
+
     def test_requires_identity(self, client):
         assert client.post("/expenses/reconvert").status_code == 401
