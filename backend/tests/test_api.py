@@ -76,7 +76,9 @@ mock_ocr.extract_data.return_value = MOCK_EXTRACTED
 main.ocr_engine = mock_ocr
 
 # ── SHARED CONSTANTS ──────────────────────────────────────────────────────────
-GUEST_ID = "test-guest-abc123"
+# Guest ids must carry the "guest-" prefix — the backend now rejects any
+# x-smartspend-guest-id without it (namespaces guests away from auth UUIDs).
+GUEST_ID = "guest-test-abc123"
 GUEST_HEADERS = {"x-smartspend-guest-id": GUEST_ID}
 
 TINY_PNG_B64 = (
@@ -138,8 +140,8 @@ class TestAuthentication:
         assert client.get("/expenses", headers=GUEST_HEADERS).status_code == 200
 
     def test_different_guest_ids_are_isolated(self, client):
-        a = {"x-smartspend-guest-id": "iso-guest-a"}
-        b = {"x-smartspend-guest-id": "iso-guest-b"}
+        a = {"x-smartspend-guest-id": "guest-iso-guest-a"}
+        b = {"x-smartspend-guest-id": "guest-iso-guest-b"}
         client.post("/expenses", headers=a, json={
             "vendor": "Only For A", "total_amount": 100.0, "date": "2024-01-01"
         })
@@ -153,7 +155,7 @@ class TestAuthentication:
 
 class TestExpensesCRUD:
     def test_list_empty_for_fresh_guest(self, client):
-        h = {"x-smartspend-guest-id": "fresh-999"}
+        h = {"x-smartspend-guest-id": "guest-fresh-999"}
         assert client.get("/expenses", headers=h).json() == []
 
     def test_create_returns_correct_fields(self, client):
@@ -169,7 +171,7 @@ class TestExpensesCRUD:
         assert "id" in body
 
     def test_created_expense_appears_in_list(self, client):
-        h = {"x-smartspend-guest-id": "list-g1"}
+        h = {"x-smartspend-guest-id": "guest-list-g1"}
         client.post("/expenses", headers=h, json={
             "vendor": "Zomato", "total_amount": 599.0, "date": "2024-04-01"
         })
@@ -177,7 +179,7 @@ class TestExpensesCRUD:
         assert "Zomato" in vendors
 
     def test_update_changes_vendor_and_amount(self, client):
-        h = {"x-smartspend-guest-id": "upd-g1"}
+        h = {"x-smartspend-guest-id": "guest-upd-g1"}
         eid = client.post("/expenses", headers=h, json={
             "vendor": "Old", "total_amount": 100.0, "date": "2024-01-01"
         }).json()["id"]
@@ -193,7 +195,7 @@ class TestExpensesCRUD:
                           json={"vendor": "X"}).status_code == 404
 
     def test_delete_removes_expense(self, client):
-        h = {"x-smartspend-guest-id": "del-g1"}
+        h = {"x-smartspend-guest-id": "guest-del-g1"}
         eid = client.post("/expenses", headers=h, json={
             "vendor": "Gone", "total_amount": 50.0, "date": "2024-01-01"
         }).json()["id"]
@@ -207,8 +209,8 @@ class TestExpensesCRUD:
         assert client.delete("/expenses/9999999", headers=GUEST_HEADERS).status_code == 404
 
     def test_cannot_delete_other_users_expense(self, client):
-        owner = {"x-smartspend-guest-id": "owner-x"}
-        thief = {"x-smartspend-guest-id": "thief-y"}
+        owner = {"x-smartspend-guest-id": "guest-owner-x"}
+        thief = {"x-smartspend-guest-id": "guest-thief-y"}
         eid = client.post("/expenses", headers=owner, json={
             "vendor": "Private", "total_amount": 100.0, "date": "2024-01-01"
         }).json()["id"]
@@ -237,7 +239,7 @@ class TestExpensesCRUD:
         assert r.json()["category"] == "Transport"
 
     def test_update_items_via_put(self, client):
-        h = {"x-smartspend-guest-id": "items-upd-g"}
+        h = {"x-smartspend-guest-id": "guest-items-upd-g"}
         eid = client.post("/expenses", headers=h, json={
             "vendor": "Shop", "total_amount": 100.0, "date": "2024-01-01",
             "items": [{"name": "A", "amount": 100.0}]
@@ -253,8 +255,24 @@ class TestExpensesCRUD:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestUpload:
-    def test_png_returns_extracted_data(self, client):
+    # /upload now requires an identity (the frontend already sends it), so every
+    # call here passes GUEST_HEADERS.
+    def test_requires_identity(self, client):
         r = client.post("/upload", json={
+            "filename": "r.png", "data_base64": TINY_PNG_B64
+        })
+        assert r.status_code == 401
+
+    def test_oversized_payload_returns_413(self, client):
+        # Raw ~20MB > 15MB cap; rejected pre-decode on base64 length.
+        big = base64.b64encode(b"x" * (20 * 1024 * 1024)).decode()
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
+            "filename": "big.png", "data_base64": big
+        })
+        assert r.status_code == 413
+
+    def test_png_returns_extracted_data(self, client):
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "receipt.png", "data_base64": TINY_PNG_B64
         })
         assert r.status_code == 200
@@ -264,46 +282,46 @@ class TestUpload:
         assert d["category"] == "Food"
 
     def test_jpeg_accepted(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.jpg", "data_base64": TINY_PNG_B64
         }).status_code == 200
 
     def test_webp_accepted(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.webp", "data_base64": TINY_PNG_B64
         }).status_code == 200
 
     def test_pdf_accepted(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.pdf",
             "data_base64": base64.b64encode(b"%PDF-1.4 fake").decode()
         }).status_code == 200
 
     def test_response_contains_image_path(self, client):
-        r = client.post("/upload", json={
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.png", "data_base64": TINY_PNG_B64
         })
         assert r.json()["image_path"] is not None
 
     def test_disallowed_extension_returns_400(self, client):
-        r = client.post("/upload", json={
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "evil.exe", "data_base64": TINY_PNG_B64
         })
         assert r.status_code == 400
         assert "Unsupported file type" in r.json()["detail"]
 
     def test_no_extension_returns_400(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "noext", "data_base64": TINY_PNG_B64
         }).status_code == 400
 
     def test_invalid_base64_returns_400(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.png", "data_base64": "!!!bad!!!"
         }).status_code == 400
 
     def test_empty_file_returns_400(self, client):
-        assert client.post("/upload", json={
+        assert client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.png",
             "data_base64": base64.b64encode(b"").decode()
         }).status_code == 400
@@ -311,14 +329,14 @@ class TestUpload:
     def test_ocr_failure_returns_502(self, client):
         from gemini_extractor import ReceiptExtractionError
         mock_ocr.extract_data.side_effect = ReceiptExtractionError("OCR failed")
-        r = client.post("/upload", json={
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "bad.png", "data_base64": TINY_PNG_B64
         })
         assert r.status_code == 502
         assert "OCR" in r.json()["detail"]
 
     def test_upload_returns_items_from_ocr(self, client):
-        r = client.post("/upload", json={
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
             "filename": "r.png", "data_base64": TINY_PNG_B64
         })
         items = r.json()["extracted_data"]["items"]
@@ -330,7 +348,7 @@ class TestUpload:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestAccountSettings:
-    H = {"x-smartspend-guest-id": "settings-g1"}
+    H = {"x-smartspend-guest-id": "guest-settings-g1"}
 
     def test_first_call_creates_defaults(self, client):
         r = client.get("/account-settings", headers=self.H)
@@ -370,7 +388,7 @@ class TestAccountSettings:
         assert r.json()["custom_categories"] == cats
 
     def test_duplicate_categories_removed(self, client):
-        h = {"x-smartspend-guest-id": "dedup-g2"}
+        h = {"x-smartspend-guest-id": "guest-dedup-g2"}
         r = client.put("/account-settings", headers=h,
                        json={"custom_categories": ["Food", "Food", "Travel"]})
         cats = r.json()["custom_categories"]
@@ -507,7 +525,7 @@ class TestExpenseOrdering:
     """GET /expenses must return rows in insertion order (ORDER BY id ASC)."""
 
     def test_insertion_order_preserved(self, client):
-        headers = {"x-smartspend-guest-id": "order-guest-001"}
+        headers = {"x-smartspend-guest-id": "guest-order-guest-001"}
         for vendor in ("Alpha", "Beta", "Gamma"):
             client.post("/expenses", headers=headers, json={
                 "vendor": vendor, "total_amount": 1.0, "date": "2024-01-01",
@@ -516,7 +534,7 @@ class TestExpenseOrdering:
         assert [e["vendor"] for e in r.json()] == ["Alpha", "Beta", "Gamma"]
 
     def test_newly_created_expense_appears_last(self, client):
-        headers = {"x-smartspend-guest-id": "order-guest-002"}
+        headers = {"x-smartspend-guest-id": "guest-order-guest-002"}
         client.post("/expenses", headers=headers, json={
             "vendor": "First", "total_amount": 1.0, "date": "2024-01-01",
         })
@@ -536,7 +554,7 @@ class TestExpenseDeduplication:
     """POST /expenses with a duplicate image_path returns the existing row."""
 
     def test_same_image_path_returns_existing_expense(self, client):
-        headers = {"x-smartspend-guest-id": "dedup-guest-001"}
+        headers = {"x-smartspend-guest-id": "guest-dedup-guest-001"}
         image_path = f"dedup_{uuid.uuid4().hex}.jpg"
         payload = {"vendor": "Original", "total_amount": 100.0, "date": "2024-01-01",
                    "image_path": image_path}
@@ -546,7 +564,7 @@ class TestExpenseDeduplication:
         assert r2.json()["vendor"] == "Original"
 
     def test_different_image_paths_create_separate_rows(self, client):
-        headers = {"x-smartspend-guest-id": "dedup-guest-002"}
+        headers = {"x-smartspend-guest-id": "guest-dedup-guest-002"}
         r1 = client.post("/expenses", headers=headers, json={
             "vendor": "A", "total_amount": 1.0, "date": "2024-01-01",
             "image_path": f"dedup_a_{uuid.uuid4().hex}.jpg",
@@ -558,7 +576,7 @@ class TestExpenseDeduplication:
         assert r1.json()["id"] != r2.json()["id"]
 
     def test_no_image_path_allows_multiple_identical_expenses(self, client):
-        headers = {"x-smartspend-guest-id": "dedup-guest-003"}
+        headers = {"x-smartspend-guest-id": "guest-dedup-guest-003"}
         payload = {"vendor": "Coffee", "total_amount": 50.0, "date": "2024-01-01"}
         r1 = client.post("/expenses", headers=headers, json=payload)
         r2 = client.post("/expenses", headers=headers, json=payload)
@@ -573,7 +591,7 @@ class TestExpenseDeduplication:
 class TestExpenseFields:
     """The full set of optional FX / receipt fields roundtrips cleanly."""
 
-    HEADERS = {"x-smartspend-guest-id": "fields-guest-001"}
+    HEADERS = {"x-smartspend-guest-id": "guest-fields-guest-001"}
 
     def test_fx_fields_stored_and_retrieved(self, client):
         r = client.post("/expenses", headers=self.HEADERS, json={
@@ -630,7 +648,7 @@ class TestExpenseFields:
 class TestAccountSettingsEdgeCases:
 
     def test_partial_updates_do_not_reset_other_fields(self, client):
-        headers = {"x-smartspend-guest-id": "settings-acc-001"}
+        headers = {"x-smartspend-guest-id": "guest-settings-acc-001"}
         client.put("/account-settings", headers=headers, json={"currency": "USD"})
         client.put("/account-settings", headers=headers, json={"theme": "dark"})
         body = client.get("/account-settings", headers=headers).json()
@@ -638,13 +656,13 @@ class TestAccountSettingsEdgeCases:
         assert body["theme"] == "dark"
 
     def test_empty_custom_categories_clears_list(self, client):
-        headers = {"x-smartspend-guest-id": "settings-acc-002"}
+        headers = {"x-smartspend-guest-id": "guest-settings-acc-002"}
         client.put("/account-settings", headers=headers, json={"custom_categories": ["Dining"]})
         r = client.put("/account-settings", headers=headers, json={"custom_categories": []})
         assert r.json()["custom_categories"] == []
 
     def test_blank_strings_in_categories_are_filtered(self, client):
-        headers = {"x-smartspend-guest-id": "settings-acc-003"}
+        headers = {"x-smartspend-guest-id": "guest-settings-acc-003"}
         r = client.put("/account-settings", headers=headers, json={
             "custom_categories": ["Valid", "  ", "", "Also Valid"],
         })
@@ -653,13 +671,13 @@ class TestAccountSettingsEdgeCases:
         assert "Valid" in cats and "Also Valid" in cats
 
     def test_empty_string_currency_does_not_overwrite_existing(self, client):
-        headers = {"x-smartspend-guest-id": "settings-acc-004"}
+        headers = {"x-smartspend-guest-id": "guest-settings-acc-004"}
         client.put("/account-settings", headers=headers, json={"currency": "EUR"})
         r = client.put("/account-settings", headers=headers, json={"currency": ""})
         assert r.json()["currency"] == "EUR"
 
     def test_display_name_and_email_roundtrip(self, client):
-        headers = {"x-smartspend-guest-id": "settings-acc-005"}
+        headers = {"x-smartspend-guest-id": "guest-settings-acc-005"}
         r = client.put("/account-settings", headers=headers, json={
             "display_name": "Kanishk", "email": "kanishk@example.com",
         })
@@ -745,7 +763,7 @@ class TestGuestMigration:
         with patch("main._resolve_identity",
                    return_value=("some-different-user", "guest", None)):
             r = client.post("/account-migrate-guest",
-                            headers={"x-smartspend-guest-id": "some-guest"})
+                            headers={"x-smartspend-guest-id": "guest-some-guest"})
         assert r.status_code == 401
 
     def test_requires_guest_id_header(self, client):
@@ -755,14 +773,16 @@ class TestGuestMigration:
         assert "Guest id" in r.json()["detail"]
 
     def test_rejects_matching_owner_and_guest_ids(self, client):
-        same_id = f"same-{uuid.uuid4().hex}"
+        # guest-prefixed so it clears the guest-namespace check and reaches the
+        # same-id guard we're actually exercising here.
+        same_id = f"guest-same-{uuid.uuid4().hex}"
         with self._auth(same_id):
             r = client.post("/account-migrate-guest",
                             headers={"x-smartspend-guest-id": same_id})
         assert r.status_code == 400
 
     def test_expenses_transferred_to_auth_user(self, client):
-        guest_id = f"mg-guest-{uuid.uuid4().hex}"
+        guest_id = f"guest-mg-{uuid.uuid4().hex}"
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
@@ -780,7 +800,7 @@ class TestGuestMigration:
         assert all(f"Guest Shop {i}" in vendors for i in range(3))
 
     def test_guest_list_empty_after_migration(self, client):
-        guest_id = f"mg-guest-{uuid.uuid4().hex}"
+        guest_id = f"guest-mg-{uuid.uuid4().hex}"
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
@@ -793,7 +813,7 @@ class TestGuestMigration:
         assert client.get("/expenses", headers=guest_headers).json() == []
 
     def test_guest_settings_copied_to_auth(self, client):
-        guest_id = f"mg-guest-{uuid.uuid4().hex}"
+        guest_id = f"guest-mg-{uuid.uuid4().hex}"
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
@@ -808,7 +828,7 @@ class TestGuestMigration:
         assert body["display_name"] == "Pre-login User"
 
     def test_existing_auth_settings_not_overwritten(self, client):
-        guest_id = f"mg-guest-{uuid.uuid4().hex}"
+        guest_id = f"guest-mg-{uuid.uuid4().hex}"
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
@@ -823,7 +843,7 @@ class TestGuestMigration:
         assert body["display_name"] == "Auth User"
 
     def test_migration_succeeds_with_no_prior_guest_settings(self, client):
-        guest_id = f"mg-guest-{uuid.uuid4().hex}"
+        guest_id = f"guest-mg-{uuid.uuid4().hex}"
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 

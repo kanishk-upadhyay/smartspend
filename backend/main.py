@@ -3,6 +3,8 @@ import json
 import logging
 import base64
 import time
+import threading
+from collections import deque
 from uuid import uuid4
 from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
@@ -202,6 +204,30 @@ _AUTH_CACHE: dict[str, tuple[float, str, dict]] = {}
 _AUTH_CACHE_TTL = 60.0
 _AUTH_CACHE_MAX = 1024
 
+# /upload guards: cap request size and rate-limit per identity. The endpoint
+# decodes arbitrary base64 to disk and calls paid OCR, so it must require an
+# identity and bound both disk and cost.
+MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "15"))
+MAX_UPLOAD_BYTES = int(MAX_UPLOAD_MB * 1024 * 1024)
+UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "30"))  # per rolling 60s
+_UPLOAD_RATE_WINDOW = 60.0
+_upload_rate_hits: dict[str, deque] = {}
+_upload_rate_lock = threading.Lock()
+
+
+def _check_upload_rate(owner_id: str) -> None:
+    now = time.time()
+    with _upload_rate_lock:
+        hits = _upload_rate_hits.get(owner_id)
+        if hits is None:
+            hits = deque()
+            _upload_rate_hits[owner_id] = hits
+        while hits and now - hits[0] > _UPLOAD_RATE_WINDOW:
+            hits.popleft()
+        if len(hits) >= UPLOAD_RATE_LIMIT:
+            raise HTTPException(status_code=429, detail="Too many uploads, slow down.")
+        hits.append(now)
+
 
 def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
     auth_header = request.headers.get("authorization", "").strip()
@@ -232,6 +258,12 @@ def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
 
     if guest_id:
+        # Namespacing invariant: legitimate guest ids always carry the "guest-"
+        # prefix (frontend generates `guest-${uuid}`). Enforcing it keeps the
+        # guest owner_id namespace disjoint from auth UUIDs, so a guest header
+        # can never address auth-owned data.
+        if not guest_id.startswith("guest-"):
+            raise HTTPException(status_code=401, detail="Invalid guest session.")
         return guest_id, "guest", None
 
     raise HTTPException(status_code=401, detail="Sign in or provide a guest session.")
@@ -272,39 +304,8 @@ def _sync_supabase_user_metadata(user_id: str, settings: "AccountSettings") -> N
         )
 
 
-def _claim_legacy_rows(db, owner_id: str) -> None:
-    has_owned_expenses = db.query(Expense.id).filter(Expense.owner_id == owner_id).first() is not None
-    has_owned_settings = db.query(AccountSettings.id).filter(AccountSettings.owner_id == owner_id).first() is not None
-
-    changed = False
-
-    if not has_owned_expenses:
-        legacy_expenses = (
-            db.query(Expense)
-            .filter(Expense.owner_id.is_(None))
-            .order_by(Expense.id.asc())
-            .all()
-        )
-        for expense in legacy_expenses:
-            expense.owner_id = owner_id
-            changed = True
-
-    if not has_owned_settings:
-        legacy_settings = (
-            db.query(AccountSettings)
-            .filter(AccountSettings.owner_id.is_(None))
-            .order_by(AccountSettings.id.asc())
-            .all()
-        )
-        if legacy_settings:
-            primary, *extras = legacy_settings
-            primary.owner_id = owner_id
-            for extra in extras:
-                db.delete(extra)
-            changed = True
-
-    if changed:
-        db.commit()
+# Legacy NULL-owner rows are never auto-claimed on request. Any backfill of
+# pre-auth rows must be a one-off offline admin script keyed to a known owner.
 
 
 def _settings_payload(settings: AccountSettings) -> "AccountSettingsResponse":
@@ -479,7 +480,6 @@ def read_health():
 @app.get("/account-settings", response_model=AccountSettingsResponse)
 def get_account_settings(request: Request, db: Session = Depends(get_db)):
     owner_id, _, auth_user = _resolve_identity(request)
-    _claim_legacy_rows(db, owner_id)
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     if settings is None:
         metadata = (auth_user or {}).get("user_metadata", {})
@@ -501,7 +501,6 @@ def get_account_settings(request: Request, db: Session = Depends(get_db)):
 @app.put("/account-settings", response_model=AccountSettingsResponse)
 def update_account_settings(request: Request, payload: AccountSettingsUpdate, db: Session = Depends(get_db)):
     owner_id, identity_type, auth_user = _resolve_identity(request)
-    _claim_legacy_rows(db, owner_id)
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     if settings is None:
         settings = AccountSettings(owner_id=owner_id)
@@ -536,6 +535,11 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
     guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
     if not guest_id:
         raise HTTPException(status_code=400, detail="Guest id required for migration")
+    # Same namespacing invariant as _resolve_identity: only "guest-"-prefixed ids
+    # are real guest sessions, so migration can only ever move guest-owned rows,
+    # never another auth user's data.
+    if not guest_id.startswith("guest-"):
+        raise HTTPException(status_code=400, detail="Invalid guest session.")
     if owner_id == guest_id:
         raise HTTPException(status_code=400, detail="Guest and account identity must differ for migration")
     if identity_type != "auth":
@@ -573,7 +577,6 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 @app.get("/expenses", response_model=List[ExpenseResponse])
 def list_expenses(request: Request, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    _claim_legacy_rows(db, owner_id)
     expenses = (
         db.query(Expense)
         .filter(Expense.owner_id == owner_id)
@@ -587,7 +590,6 @@ def list_expenses(request: Request, db: Session = Depends(get_db)):
 @app.post("/expenses", response_model=ExpenseResponse)
 def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
-    _claim_legacy_rows(db, owner_id)
     if expense.image_path:
         expense.image_path = _normalize_image_path(expense.image_path)
         _validate_image_path(expense.image_path)
@@ -660,7 +662,10 @@ def delete_expense(expense_id: int, request: Request, db: Session = Depends(get_
     return {"id": expense_id, "deleted": True}
 
 @app.post("/upload")
-async def upload_receipt(payload: UploadRequest):
+async def upload_receipt(request: Request, payload: UploadRequest):
+    owner_id, _, _ = _resolve_identity(request)
+    _check_upload_rate(owner_id)
+
     original_name = payload.filename or ""
     ext = os.path.splitext(original_name)[1].lower()
     if ext not in ALLOWED_UPLOAD_EXTS:
@@ -668,6 +673,10 @@ async def upload_receipt(payload: UploadRequest):
             status_code=400,
             detail=f"Unsupported file type {ext or '<none>'}. Allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}.",
         )
+
+    # Reject oversized payloads before decoding (base64 is ~1.37x the raw size).
+    if len(payload.data_base64) > int(MAX_UPLOAD_BYTES * 1.4):
+        raise HTTPException(status_code=413, detail="Upload too large")
 
     saved_name = f"{uuid4().hex}{ext}"
     file_path = _safe_upload_path(saved_name)
@@ -678,6 +687,9 @@ async def upload_receipt(payload: UploadRequest):
 
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Empty upload payload")
+
+    if len(raw_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Upload too large")
 
     with open(file_path, "wb") as buffer:
         buffer.write(raw_bytes)

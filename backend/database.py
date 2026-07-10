@@ -60,14 +60,17 @@ class AccountSettings(Base):
 Base.metadata.create_all(bind=engine)
 
 with engine.begin() as connection:
-    # Keep only the earliest row per image_path before enforcing uniqueness.
+    # Keep only the earliest row per (owner_id, image_path) before enforcing
+    # uniqueness. Dedup must be scoped per owner to match create_expense's
+    # per-owner dedup — a global image_path index would 500 on cross-owner
+    # collisions the per-owner recovery can't resolve.
     connection.exec_driver_sql(
         """
         DELETE FROM expenses
         WHERE id IN (
             SELECT id FROM (
                 SELECT id,
-                       ROW_NUMBER() OVER (PARTITION BY image_path ORDER BY id) AS rn
+                       ROW_NUMBER() OVER (PARTITION BY owner_id, image_path ORDER BY id) AS rn
                 FROM expenses
                 WHERE image_path IS NOT NULL AND image_path != ''
             ) dedupe
@@ -75,10 +78,13 @@ with engine.begin() as connection:
         )
         """
     )
+    # Drop the old global index; CREATE ... IF NOT EXISTS won't upgrade an
+    # existing global index to the per-owner one.
+    connection.exec_driver_sql("DROP INDEX IF EXISTS ux_expenses_image_path")
     connection.exec_driver_sql(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_expenses_image_path
-        ON expenses (image_path)
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_expenses_owner_image_path
+        ON expenses (owner_id, image_path)
         WHERE image_path IS NOT NULL AND image_path != ''
         """
     )
