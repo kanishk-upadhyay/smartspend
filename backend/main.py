@@ -274,8 +274,10 @@ def _sync_supabase_user_metadata(user_id: str, settings: "AccountSettings") -> N
     if not (SUPABASE_ADMIN_USER_URL and SUPABASE_KEY):
         return
 
+    # Only mirror profile/preferences into user_metadata. Deliberately NOT the
+    # auth `email`: it's a display/contact field here and pushing it to the auth
+    # record would silently change the user's login email (and skip re-verification).
     payload = {
-        "email": settings.email,
         "user_metadata": {
             "display_name": settings.display_name,
             "avatar_url": settings.avatar_url,
