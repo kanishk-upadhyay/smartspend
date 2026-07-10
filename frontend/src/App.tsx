@@ -713,7 +713,7 @@ export default function App() {
   const queueRemainingCount = pendingFiles.length + prefetchedResults.length;
   const isSignedIn = Boolean(session?.user);
   const identityLabel = isSignedIn
-    ? (session?.user.email || 'Signed in')
+    ? (accountDraft.displayName.trim() || session?.user.email || 'Signed in')
     : `Guest ${guestSessionId.slice(-6)}`;
   const accessToken = session?.access_token;
   const requestConfig = useMemo(() => ({
@@ -2004,7 +2004,8 @@ export default function App() {
                 </header>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  <section className="lg:col-span-6">
+                  <section className="lg:col-span-5 space-y-8">
+                    <div>
                     <p className="micro-label mb-6">Session</p>
                     <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-6" style={{ borderRadius: 'var(--radius-lg)' }}>
                       {isSignedIn ? (
@@ -2112,12 +2113,23 @@ export default function App() {
                         </>
                       )}
                     </div>
-                  </section>
-
-                  <section className="lg:col-span-6 space-y-8">
+                    </div>
                     <div>
                       <p className="micro-label mb-6">Profile</p>
                       <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
+                        <div className="flex items-center gap-4 pb-4 border-b border-[var(--color-paper-mist)]">
+                          {accountDraft.avatarUrl ? (
+                            <img src={accountDraft.avatarUrl} alt="" className="w-14 h-14 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
+                          ) : (
+                            <div className="w-14 h-14 rounded-full bg-[var(--color-paper-mist)] flex items-center justify-center flex-shrink-0">
+                              <CircleUserRound className="w-7 h-7 text-[var(--color-accent)]" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-body font-medium text-[var(--color-deep-graphite)] truncate">{accountDraft.displayName.trim() || 'Your name'}</p>
+                            <p className="font-body text-sm text-[var(--color-mid-ash)] truncate">{accountDraft.email || 'you@example.com'}</p>
+                          </div>
+                        </div>
                         <div>
                           <label className="micro-label block mb-2">Display name</label>
                           <input
@@ -2157,7 +2169,9 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                  </section>
 
+                  <section className="lg:col-span-7 space-y-8">
                     <div>
                       <p className="micro-label mb-6">Theme</p>
                       <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
