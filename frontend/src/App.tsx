@@ -968,6 +968,9 @@ export default function App() {
           email,
           password: authPassword,
           options: {
+            // Send the confirmation link back to wherever the app is actually
+            // served (prod or local dev) instead of Supabase's default Site URL.
+            emailRedirectTo: `${window.location.origin}/`,
             data: {
               display_name: authName.trim() || email.split('@')[0],
             },
