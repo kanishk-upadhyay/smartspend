@@ -26,12 +26,14 @@ primary model is rate-limited or unavailable.
   even rotated or skewed photos.
 - **Dual OCR with fallback** — Gemini first, Z.AI second if it fails. A validation
   step flags receipts where the line items don't sum to the stated total.
-- **Multi-currency** — captures the receipt's original currency and converts to a
-  base currency, with the original amount viewable per receipt.
+- **Multi-currency** — each receipt is converted to your chosen base currency at
+  capture (original amount still viewable per receipt); change the base later and
+  reconvert existing receipts on demand.
 - **Batch upload** — drop several receipts at once and confirm them one at a time.
 - **Analytics** — spend by category, daily trend, top merchants, and largest receipts.
 - **Expense management** — edit, delete with undo, search, filter, and CSV export.
-- **Accounts** — email sign-in with per-user data isolation.
+- **Accounts** — start instantly in guest mode, or sign in with email (with password
+  reset); per-user data isolation throughout.
 
 ## Screenshots
 

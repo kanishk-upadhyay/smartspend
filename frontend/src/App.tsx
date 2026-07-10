@@ -507,13 +507,20 @@ export default function App() {
 
     let active = true;
     const bootstrap = async () => {
-      const { data, error } = await client.auth.getSession();
-      if (!active) return;
-      if (error) {
-        setAuthError(error.message);
+      try {
+        const { data, error } = await client.auth.getSession();
+        if (!active) return;
+        if (error) {
+          setAuthError(error.message);
+        }
+        setSession(data.session);
+      } catch (err) {
+        // Never leave the app stuck on the loading gate if getSession rejects
+        // (network/config failure) — surface it and fall through to authReady.
+        if (active) setAuthError(getErrorMessage(err, 'Unable to restore session'));
+      } finally {
+        if (active) setAuthReady(true);
       }
-      setSession(data.session);
-      setAuthReady(true);
     };
 
     bootstrap();
@@ -534,6 +541,10 @@ export default function App() {
         setCurrentFileName(null);
         setAuthName('');
         setAuthEmail('');
+        // If a session expires while the "set a new password" form is open,
+        // don't strand the user in recovery mode with a dead session.
+        setRecoveryMode(false);
+        setRecoveryPassword('');
         setCustomCategories(loadCustomCategories());
       } else if (_event === 'PASSWORD_RECOVERY') {
         // User returned from a reset link — surface the "set a new password" form.
@@ -1260,8 +1271,17 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    const headers = ['id', 'vendor', 'category', 'date', 'total_amount'];
-    const rows = expenses.map(e => [e.id, '"' + String(e.vendor).replace(/"/g, '""') + '"', e.category, e.date, e.total_amount].join(','));
+    const headers = ['id', 'vendor', 'category', 'date', 'total_amount', 'currency', 'source_currency', 'raw_total_amount'];
+    const rows = expenses.map(e => [
+      e.id,
+      '"' + String(e.vendor).replace(/"/g, '""') + '"',
+      e.category,
+      e.date,
+      e.total_amount,
+      e.currency || DEFAULT_CURRENCY,
+      e.source_currency || e.currency || DEFAULT_CURRENCY,
+      e.raw_total_amount ?? e.total_amount,
+    ].join(','));
     const csv = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -1426,7 +1446,7 @@ export default function App() {
             <p className="micro-label">Session</p>
             <div className="flex items-center gap-3">
               {accountDraft.avatarUrl ? (
-                <img src={accountDraft.avatarUrl} alt="" width={24} height={24} className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
+                <img src={accountDraft.avatarUrl} alt="" width={24} height={24} onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-6 h-6 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
               ) : (
                 <CircleUserRound className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0" />
               )}
@@ -1453,7 +1473,7 @@ export default function App() {
             >
               <span aria-hidden="true" className={`inline-block w-1.5 h-1.5 transition-opacity duration-150 ${currentView === 'account' ? 'opacity-100' : 'opacity-0'}`} style={{ backgroundColor: 'var(--color-accent)' }} />
               {accountDraft.avatarUrl ? (
-                <img src={accountDraft.avatarUrl} alt="" width={16} height={16} className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                <img src={accountDraft.avatarUrl} alt="" width={16} height={16} onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
               ) : (
                 <CircleUserRound className="w-4 h-4" />
               )}
@@ -1838,6 +1858,11 @@ export default function App() {
                       <p className="title-italic mt-2 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }}>
                         across {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'}.
                       </p>
+                      {hasMixedAggregateCurrencies && (
+                        <p className="mt-2 font-body text-sm text-[var(--color-soft-charcoal)]/70">
+                          Totals may mix currencies — reconvert to show everything in {aggregateCurrency}.
+                        </p>
+                      )}
 
                       <div className="mt-8 sm:mt-10 flex flex-wrap gap-x-12 gap-y-4">
                         <div className="flex items-baseline gap-3">
@@ -2363,7 +2388,7 @@ export default function App() {
                       <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-4" style={{ borderRadius: 'var(--radius-lg)' }}>
                         <div className="flex items-center gap-4 pb-4 border-b border-[var(--color-paper-mist)]">
                           {accountDraft.avatarUrl ? (
-                            <img src={accountDraft.avatarUrl} alt="" className="w-14 h-14 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
+                            <img src={accountDraft.avatarUrl} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-14 h-14 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-paper-mist)]" />
                           ) : (
                             <div className="w-14 h-14 rounded-full bg-[var(--color-paper-mist)] flex items-center justify-center flex-shrink-0">
                               <CircleUserRound className="w-7 h-7 text-[var(--color-accent)]" />
@@ -2404,13 +2429,12 @@ export default function App() {
                         </div>
                         <div>
                           {/*
-                            H1 — This preference labels the receipt currency you deal in
-                            most; it does NOT re-denominate aggregates. Totals and charts
-                            stay in the base currency (INR) because each receipt is
-                            FX-converted to that base at capture time (see backend
-                            ocr_utils normalization) — swapping only the symbol would
-                            mislabel rupee sums as e.g. "$57,256". A closed <select>
-                            (vs free text) also prevents typo'd ISO codes.
+                            This preference is the base currency your receipts are
+                            captured into, so aggregate totals and charts render in it
+                            (see aggregateCurrency). When some loaded receipt is stored
+                            in a different currency, the mixed-currency note near each
+                            total is the honesty guard rather than silently re-labelling.
+                            A closed <select> (vs free text) also prevents typo'd ISO codes.
                           */}
                           <label htmlFor="account-currency" className="micro-label block mb-2">Preferred currency</label>
                           <div className="relative">
