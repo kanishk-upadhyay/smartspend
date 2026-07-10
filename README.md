@@ -136,3 +136,5 @@ A few decisions I made while building this, and why:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<div align="center"><pre>...CLOSE THE LEDGER, OPEN THE NEXT...</pre></div>
