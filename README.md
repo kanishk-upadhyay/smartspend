@@ -12,12 +12,11 @@ Extraction runs on a vision model (Google Gemini) with a second model
 (Z.AI GLM-4.6V) as an automatic fallback, so scanning keeps working even when the
 primary model is rate-limited or unavailable.
 
-**[▶ Try the live demo](https://smartspend--invincible01.replit.app/)**
+**[▶ Try the live demo](https://smartspend--invincible01.replit.app/)** — no signup, guest mode is instant.
 
 ![SmartSpend reading a rotated, handwritten shop bill into structured merchant, total, category, and line items](docs/scan.png)
 
 <p align="center"><em>Reading a rotated, handwritten shop bill straight into merchant, total, category, and line items.</em></p>
-
 
 ## Features
 
@@ -106,7 +105,10 @@ npm run dev
 ```
 
 With no `DATABASE_URL` set, the backend falls back to a local SQLite file, so you can
-run it without provisioning a database.
+run it without provisioning a database. See
+[`backend/.env.example`](backend/.env.example) for the full set of variables (OCR
+models, storage bucket, allowed origins, upload size/rate limits) — the optional ones
+all have sensible defaults.
 
 ## Engineering notes
 
@@ -124,9 +126,10 @@ A few decisions I made while building this, and why:
   SQLAlchemy's prepared statements; the app connects through the session pooler
   (port 5432) with `pool_pre_ping` + `pool_recycle` to survive dropped idle SSL
   connections.
-- **Per-user isolation.** Every request is scoped by the Supabase-issued JWT, and
-  receipt images are served through short-lived signed URLs rather than public
-  bucket links.
+- **Identity & data isolation.** Signed-in users are scoped by their Supabase JWT;
+  guest sessions get a namespaced id that can't address another account's data. Every
+  query is owner-scoped, receipt images are served via short-lived signed URLs (not
+  public links), and the public OCR upload endpoint is size-capped and rate-limited.
 - **Tested and CI-gated.** The backend ships with a pytest suite and the frontend is
   linted and type-checked; both run on every push (see the CI badge above).
 
