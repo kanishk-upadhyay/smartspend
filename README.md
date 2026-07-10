@@ -4,13 +4,16 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Live demo](https://img.shields.io/badge/live-demo-3b82f6.svg)](https://smartspend--invincible01.replit.app/)
 
-A receipt-scanning expense tracker. Upload a photo or PDF of a receipt and it pulls
-out the vendor, total, date, line items, and currency automatically, sorts the
-expense into a category, and charts your spending over time.
+Every expense app I tried still made *me* do the data entry — so I built one where the
+model does it.
 
-Extraction runs on a vision model (Google Gemini) with a second model
-(Z.AI GLM-4.6V) as an automatic fallback, so scanning keeps working even when the
-primary model is rate-limited or unavailable.
+Snap a receipt — even a crumpled, handwritten, sideways one — and it comes back as clean
+structured data: vendor, total, date, line items, and currency. SmartSpend sorts it into a
+category and charts where your money actually goes. No typing.
+
+Extraction runs on a vision model (Google Gemini), with a second (Z.AI GLM-4.6V) as an
+automatic fallback — so scanning keeps working even when the primary model is rate-limited
+or down.
 
 **[▶ Try the live demo](https://smartspend--invincible01.replit.app/)** — no signup, guest mode is instant.
 
@@ -20,19 +23,19 @@ primary model is rate-limited or unavailable.
 
 ## Features
 
-- **Automatic receipt extraction** — vendor, total, date, per-line-item breakdown,
-  and a category suggestion from an image or PDF. Handles printed, handwritten, and
-  even rotated or skewed photos.
-- **Dual OCR with fallback** — Gemini first, Z.AI second if it fails. A validation
-  step flags receipts where the line items don't sum to the stated total.
-- **Multi-currency** — each receipt is converted to your chosen base currency at
-  capture (original amount still viewable per receipt); change the base later and
-  reconvert existing receipts on demand.
-- **Batch upload** — drop several receipts at once and confirm them one at a time.
-- **Analytics** — spend by category, daily trend, top merchants, and largest receipts.
-- **Expense management** — edit, delete with undo, search, filter, and CSV export.
-- **Accounts** — start instantly in guest mode, or sign in with email (with password
-  reset); per-user data isolation throughout.
+- **Reads any receipt** — printed, handwritten, even rotated or skewed — into vendor,
+  total, date, per-line-item breakdown, and a suggested category, from an image or PDF.
+- **Falls back on its own** — Gemini first, Z.AI second if it fails, and a validation
+  step flags receipts whose line items don't sum to the stated total.
+- **Speaks any currency** — converts each receipt to your base currency at capture
+  (the original stays viewable per receipt), and reconverts the rest on demand when you
+  change it.
+- **Takes a whole stack** — drop several receipts at once and confirm them one at a time.
+- **Charts where it went** — spend by category, daily trend, top merchants, and largest
+  receipts.
+- **Hands you the controls** — edit, delete with undo, search, filter, and export to CSV.
+- **Starts without a signup** — use it instantly in guest mode, or sign in with email
+  (with password reset); per-user data isolation throughout.
 
 ## Screenshots
 
