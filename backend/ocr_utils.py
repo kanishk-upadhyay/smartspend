@@ -103,8 +103,10 @@ class OCRProcessor:
 
         return None, None, f"Could not fetch historical FX rate for {source_currency} -> {target_currency} on or before {receipt_date_iso}."
 
-    def extract_data(self, image_path):
+    def extract_data(self, image_path, base_currency: str = DEFAULT_CURRENCY):
         receipt = self._extract(image_path)
+
+        target_currency = (base_currency or DEFAULT_CURRENCY).upper()
 
         receipt_date_iso = receipt.date or None
         if receipt_date_iso:
@@ -116,7 +118,7 @@ class OCRProcessor:
         source_currency = (receipt.source_currency or DEFAULT_CURRENCY).upper()
         raw_total = float(receipt.total_amount or 0.0)
 
-        primary_currency = DEFAULT_CURRENCY
+        primary_currency = target_currency
         currency_warning = None
         fx_rate_date = None
 
@@ -133,14 +135,14 @@ class OCRProcessor:
         if source_currency == MIXED_CURRENCY:
             currency_warning = "Multiple currencies detected. Review the receipt before saving."
             total_amount = raw_total
-            items = [{**i, "currency": DEFAULT_CURRENCY, "source_currency": MIXED_CURRENCY} for i in raw_items]
-        elif source_currency == DEFAULT_CURRENCY:
+            items = [{**i, "currency": target_currency, "source_currency": MIXED_CURRENCY} for i in raw_items]
+        elif source_currency == target_currency:
             total_amount = raw_total
-            items = [{**i, "currency": DEFAULT_CURRENCY, "source_currency": DEFAULT_CURRENCY} for i in raw_items]
+            items = [{**i, "currency": target_currency, "source_currency": target_currency} for i in raw_items]
         else:
-            rate, fx_rate_date, warning = self.get_historical_rate(source_currency, DEFAULT_CURRENCY, receipt_date_iso)
+            rate, fx_rate_date, warning = self.get_historical_rate(source_currency, target_currency, receipt_date_iso)
             if rate is None:
-                currency_warning = warning or f"Could not convert {source_currency} to {DEFAULT_CURRENCY} using the receipt date."
+                currency_warning = warning or f"Could not convert {source_currency} to {target_currency} using the receipt date."
                 total_amount = raw_total
                 primary_currency = source_currency
                 items = [
@@ -153,7 +155,7 @@ class OCRProcessor:
                     {
                         **i,
                         "amount": i["raw_amount"] * rate,
-                        "currency": DEFAULT_CURRENCY,
+                        "currency": target_currency,
                         "source_currency": source_currency,
                         "fx_rate_date": fx_rate_date,
                     }

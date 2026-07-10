@@ -388,6 +388,7 @@ export default function App() {
     currency: DEFAULT_CURRENCY,
   });
   const [accountBusy, setAccountBusy] = useState(false);
+  const [reconvertBusy, setReconvertBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   // PASSWORD_RECOVERY (Supabase) puts the app into a "set a new password" mode.
@@ -550,6 +551,18 @@ export default function App() {
   const totalSpent = useMemo(
     () => expenses.reduce((sum, exp) => sum + exp.total_amount, 0),
     [expenses]
+  );
+
+  // The user's preferred currency is the base their receipts are captured into,
+  // so dashboards/aggregates are labelled with it. Per-receipt rows keep their
+  // own stored currency (handled separately below).
+  const aggregateCurrency = accountDraft.currency || DEFAULT_CURRENCY;
+
+  // True when some loaded receipt is not stored in the preferred currency, so
+  // the aggregate totals silently mix currencies until the user reconverts.
+  const hasMixedAggregateCurrencies = useMemo(
+    () => expenses.some(exp => (exp.currency || DEFAULT_CURRENCY) !== aggregateCurrency),
+    [expenses, aggregateCurrency]
   );
 
   const filteredExpenses = useMemo(() => {
@@ -1181,6 +1194,31 @@ export default function App() {
     }
   };
 
+  const reconvertExistingReceipts = async () => {
+    const preferred = accountDraft.currency || DEFAULT_CURRENCY;
+    setReconvertBusy(true);
+    try {
+      const response = await axios.post<{ reconverted: number; failed: number; skipped: number }>(
+        `${API_URL}/expenses/reconvert`,
+        {},
+        requestConfig,
+      );
+      const { reconverted, failed } = response.data;
+      const noun = reconverted === 1 ? 'receipt' : 'receipts';
+      const message = reconverted > 0
+        ? `Reconverted ${reconverted} ${noun} to ${preferred}${failed ? ` · ${failed} couldn't be converted` : ''}.`
+        : failed > 0
+          ? `Couldn't reconvert ${failed} ${failed === 1 ? 'receipt' : 'receipts'} — no FX rate for their dates.`
+          : `Everything is already in ${preferred}.`;
+      pushToast({ message, tone: failed > 0 && reconverted === 0 ? 'danger' : 'accent', duration: 5000 });
+      await fetchExpenses();
+    } catch (error) {
+      pushToast({ message: `Reconvert failed: ${getErrorMessage(error, 'Unknown error')}`, tone: 'danger', duration: 5000 });
+    } finally {
+      setReconvertBusy(false);
+    }
+  };
+
   const saveExpense = async () => {
     if (!result || isSaving || saveLockRef.current) return;
     saveLockRef.current = true;
@@ -1442,8 +1480,13 @@ export default function App() {
                   <p className="micro-label mb-4">Receipts · Capture</p>
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Today's ledger.</h1>
                   <p className="title-italic mt-4 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)' }}>
-                    {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'} · {formatMoney(totalSpent, DEFAULT_CURRENCY)} total.
+                    {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'} · {formatMoney(totalSpent, aggregateCurrency)} total.
                   </p>
+                  {hasMixedAggregateCurrencies && (
+                    <p className="mt-2 font-body text-sm text-[var(--color-soft-charcoal)]/70">
+                      Totals may mix currencies — reconvert to show everything in {aggregateCurrency}.
+                    </p>
+                  )}
                 </header>
 
                 {expensesErrorBanner}
@@ -1738,7 +1781,7 @@ export default function App() {
                             </p>
                             {expenses.length > 0 && (
                               <p className="font-body text-sm text-[var(--color-mid-ash)] mt-6">
-                                Average receipt {formatMoney((totalSpent / (expenses.length || 1)) || 0, DEFAULT_CURRENCY)} · across {availableCategories.length} {availableCategories.length === 1 ? 'category' : 'categories'}.
+                                Average receipt {formatMoney((totalSpent / (expenses.length || 1)) || 0, aggregateCurrency)} · across {availableCategories.length} {availableCategories.length === 1 ? 'category' : 'categories'}.
                               </p>
                             )}
                           </div>
@@ -1790,7 +1833,7 @@ export default function App() {
                     <section className="pb-10 sm:pb-12 border-b border-[var(--color-paper-mist)]">
                       <p className="micro-label mb-3">Total spent</p>
                       <p className="display-italic text-[var(--color-accent)]" style={{ fontSize: 'clamp(2.75rem, 8vw, 5rem)' }}>
-                        {formatMoney(totalSpent, DEFAULT_CURRENCY)}
+                        {formatMoney(totalSpent, aggregateCurrency)}
                       </p>
                       <p className="title-italic mt-2 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }}>
                         across {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'}.
@@ -1800,7 +1843,7 @@ export default function App() {
                         <div className="flex items-baseline gap-3">
                           <span className="micro-label">Average</span>
                           <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] tabular-nums">
-                            {formatMoney(totalSpent / (expenses.length || 1), DEFAULT_CURRENCY)}
+                            {formatMoney(totalSpent / (expenses.length || 1), aggregateCurrency)}
                           </span>
                         </div>
                         <div className="flex items-baseline gap-3 min-w-0">
@@ -1845,7 +1888,7 @@ export default function App() {
                                 contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', padding: '10px 14px', fontFamily: 'var(--font-body)', fontSize: '13px' }}
                                 itemStyle={{ color: 'var(--color-text)' }}
                                 cursor={false}
-                                formatter={(v: unknown, name: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), String(name)]}
+                                formatter={(v: unknown, name: unknown) => [formatMoney(Number(v), aggregateCurrency), String(name)]}
                               />
                             </PieChart>
                           )}
@@ -1862,7 +1905,7 @@ export default function App() {
                                 </div>
                                 <div className="flex items-baseline gap-4 flex-shrink-0">
                                   <span className="font-mono text-xs text-[var(--color-mid-ash)]">{pct}%</span>
-                                  <span className="font-body text-base font-medium text-[var(--color-deep-graphite)]">{formatMoney(d.value, DEFAULT_CURRENCY)}</span>
+                                  <span className="font-body text-base font-medium text-[var(--color-deep-graphite)]">{formatMoney(d.value, aggregateCurrency)}</span>
                                 </div>
                               </div>
                             );
@@ -1908,7 +1951,7 @@ export default function App() {
                                   const item = (payload as readonly { payload?: { date?: string } }[])[0]?.payload;
                                   return item?.date || String(label);
                                 }}
-                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
+                                formatter={(v: unknown) => [formatMoney(Number(v), aggregateCurrency), 'Total']}
                               />
                               <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={20} isAnimationActive animationDuration={400} />
                             </BarChart>
@@ -1951,10 +1994,10 @@ export default function App() {
                                 labelFormatter={(label, payload) => {
                                   const item = (payload as readonly { payload?: { count: number; average: number } }[])[0]?.payload;
                                   if (!item) return String(label);
-                                  const avg = item.average > 0 ? ` · avg ${formatMoney(item.average, DEFAULT_CURRENCY)}` : '';
+                                  const avg = item.average > 0 ? ` · avg ${formatMoney(item.average, aggregateCurrency)}` : '';
                                   return `${label} — ${item.count} ${item.count === 1 ? 'receipt' : 'receipts'}${avg}`;
                                 }}
-                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
+                                formatter={(v: unknown) => [formatMoney(Number(v), aggregateCurrency), 'Total']}
                               />
                               <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={22} isAnimationActive animationDuration={400} />
                             </BarChart>
@@ -1962,7 +2005,7 @@ export default function App() {
                         </ChartFrame>
                         {busiestWeekday && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
-                            You spend most on {busiestWeekday.day}s — {formatMoney(busiestWeekday.amount, DEFAULT_CURRENCY)} across {busiestWeekday.count} {busiestWeekday.count === 1 ? 'receipt' : 'receipts'}.
+                            You spend most on {busiestWeekday.day}s — {formatMoney(busiestWeekday.amount, aggregateCurrency)} across {busiestWeekday.count} {busiestWeekday.count === 1 ? 'receipt' : 'receipts'}.
                           </p>
                         )}
                       </section>
@@ -2002,7 +2045,7 @@ export default function App() {
                                   if (!item) return String(label);
                                   return `${label} — ${item.count} ${item.count === 1 ? 'receipt' : 'receipts'}`;
                                 }}
-                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Total']}
+                                formatter={(v: unknown) => [formatMoney(Number(v), aggregateCurrency), 'Total']}
                               />
                               <Bar dataKey="amount" fill={ACCENT_MUTED} radius={[2, 2, 0, 0]} barSize={26} isAnimationActive animationDuration={400} />
                               <ReferenceLine y={monthlyAvg} stroke={TEXT_DIM} strokeDasharray="4 3" strokeWidth={1} label={{ value: 'avg', position: 'insideTopRight', fill: TEXT_DIM, fontSize: 10, fontFamily: 'Instrument Sans, sans-serif' }} />
@@ -2011,7 +2054,7 @@ export default function App() {
                         </ChartFrame>
                         {monthOverMonthDelta && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
-                            {monthOverMonthDelta.delta >= 0 ? 'Up' : 'Down'} {formatMoney(Math.abs(monthOverMonthDelta.delta), DEFAULT_CURRENCY)} ({monthOverMonthDelta.pct >= 0 ? '+' : ''}{monthOverMonthDelta.pct.toFixed(0)}%) versus {monthOverMonthDelta.prior.label}.
+                            {monthOverMonthDelta.delta >= 0 ? 'Up' : 'Down'} {formatMoney(Math.abs(monthOverMonthDelta.delta), aggregateCurrency)} ({monthOverMonthDelta.pct >= 0 ? '+' : ''}{monthOverMonthDelta.pct.toFixed(0)}%) versus {monthOverMonthDelta.prior.label}.
                           </p>
                         )}
                       </section>
@@ -2058,10 +2101,10 @@ export default function App() {
                                 labelFormatter={(label, payload) => {
                                   const item = (payload as readonly { payload?: { date?: string; daily?: number } }[])[0]?.payload;
                                   if (!item) return String(label);
-                                  const dayLine = item.daily ? ` · ${formatMoney(item.daily, DEFAULT_CURRENCY)} that day` : '';
+                                  const dayLine = item.daily ? ` · ${formatMoney(item.daily, aggregateCurrency)} that day` : '';
                                   return `${item.date || label}${dayLine}`;
                                 }}
-                                formatter={(v: unknown) => [formatMoney(Number(v), DEFAULT_CURRENCY), 'Running total']}
+                                formatter={(v: unknown) => [formatMoney(Number(v), aggregateCurrency), 'Running total']}
                               />
                               <Area
                                 type="monotone"
@@ -2077,7 +2120,7 @@ export default function App() {
                         </ChartFrame>
                         {cumulativeSpan && (
                           <p className="font-body text-sm text-[var(--color-mid-ash)] italic mt-4">
-                            Averaging {formatMoney(cumulativeSpan.perDay, DEFAULT_CURRENCY)} per day across this window.
+                            Averaging {formatMoney(cumulativeSpan.perDay, aggregateCurrency)} per day across this window.
                           </p>
                         )}
                       </section>
@@ -2101,7 +2144,7 @@ export default function App() {
                                     </span>
                                   </div>
                                   <span className="font-body text-base font-medium text-[var(--color-deep-graphite)] flex-shrink-0">
-                                    {formatMoney(m.total, DEFAULT_CURRENCY)}
+                                    {formatMoney(m.total, aggregateCurrency)}
                                   </span>
                                 </div>
                                 <div className="h-0.5 bg-[var(--color-paper-mist)] rounded-full overflow-hidden mt-2">
@@ -2390,6 +2433,17 @@ export default function App() {
                           </div>
                           <p className="font-body text-xs text-[var(--color-mid-ash)] mt-2">
                             Your usual receipt currency. Totals stay in the base currency each receipt is converted to.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={reconvertExistingReceipts}
+                            disabled={reconvertBusy}
+                            className="btn-quiet btn--sm mt-4 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {reconvertBusy ? 'Reconverting…' : `Reconvert existing receipts to ${accountDraft.currency || DEFAULT_CURRENCY}`}
+                          </button>
+                          <p className="font-body text-xs text-[var(--color-mid-ash)] mt-2">
+                            Recomputes stored totals of past receipts into {accountDraft.currency || DEFAULT_CURRENCY} at each receipt's date.
                           </p>
                         </div>
                       </div>

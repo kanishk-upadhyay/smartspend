@@ -342,6 +342,34 @@ class TestUpload:
         items = r.json()["extracted_data"]["items"]
         assert items[0]["name"] == "Coffee"
 
+    def test_upload_passes_preferred_currency_as_base(self, client):
+        """The owner's preferred currency is threaded to the OCR engine as the
+        conversion base, and the stored currency reflects it."""
+        h = {"x-smartspend-guest-id": "guest-upload-base-usd"}
+        client.put("/account-settings", headers=h, json={"currency": "USD"})
+
+        # A minimal real-shaped extraction so we can assert on the returned base.
+        def fake_extract(image_path, base_currency="INR"):
+            base = (base_currency or "INR").upper()
+            return {
+                "vendor": "Overseas Cafe", "total_amount": 10.0,
+                "raw_total_amount": 10.0, "date": "2024-05-01",
+                "receipt_date": "2024-05-01", "currency": base,
+                "source_currency": base, "detected_currencies": [base],
+                "currency_warning": None, "fx_rate_date": None,
+                "item_warning": None, "items": [], "category": "Food",
+            }
+        mock_ocr.extract_data.side_effect = fake_extract
+
+        r = client.post("/upload", headers=h, json={
+            "filename": "r.png", "data_base64": TINY_PNG_B64
+        })
+        assert r.status_code == 200
+        # Called with the preferred currency as base_currency.
+        _, kwargs = mock_ocr.extract_data.call_args
+        assert kwargs.get("base_currency") == "USD"
+        assert r.json()["extracted_data"]["currency"] == "USD"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Account settings
@@ -857,3 +885,121 @@ class TestGuestMigration:
             vendors = [e["vendor"] for e in client.get("/expenses").json()]
 
         assert "Settings-free Shop" in vendors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. Reconvert existing expenses to preferred currency
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestReconvert:
+    """POST /expenses/reconvert — reconverts the caller's rows into their
+    preferred currency using historical FX. FX is mocked so no network runs."""
+
+    def test_reconverts_inr_receipt_to_usd(self, client):
+        from unittest.mock import patch
+        h = {"x-smartspend-guest-id": "guest-recon-usd"}
+        # An INR receipt captured natively (no raw_total_amount).
+        eid = client.post("/expenses", headers=h, json={
+            "vendor": "Chai Point", "total_amount": 830.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
+            "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
+        }).json()["id"]
+        # Prefer USD.
+        client.put("/account-settings", headers=h, json={"currency": "USD"})
+
+        # 1 INR = 0.012 USD  → 830 * 0.012 = 9.96
+        with patch.object(main.ocr_engine, "get_historical_rate",
+                          return_value=(0.012, "2024-05-01", None)):
+            r = client.post("/expenses/reconvert", headers=h)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["reconverted"] == 1
+        assert body["failed"] == 0
+
+        row = next(e for e in client.get("/expenses", headers=h).json() if e["id"] == eid)
+        assert row["currency"] == "USD"
+        assert row["total_amount"] == 9.96
+        assert row["fx_rate_date"] == "2024-05-01"
+        assert row["currency_warning"] is None
+        assert row["items"][0]["amount"] == 9.96
+        assert row["items"][0]["currency"] == "USD"
+
+    def test_reconverts_using_raw_total_when_present(self, client):
+        """A row already converted (USD source, INR base) reconverts from the
+        raw source amount, not the derived base amount."""
+        from unittest.mock import patch
+        h = {"x-smartspend-guest-id": "guest-recon-raw"}
+        eid = client.post("/expenses", headers=h, json={
+            "vendor": "US Store", "total_amount": 1660.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "USD",
+            "raw_total_amount": 20.0,
+        }).json()["id"]
+        client.put("/account-settings", headers=h, json={"currency": "EUR"})
+
+        # Convert from the USD source (20) at 0.9 EUR/USD → 18.0, not from 1660 INR.
+        with patch.object(main.ocr_engine, "get_historical_rate",
+                          return_value=(0.9, "2024-05-01", None)) as m:
+            r = client.post("/expenses/reconvert", headers=h)
+        assert r.json()["reconverted"] == 1
+        # source currency passed to FX must be USD (the original source), not INR.
+        assert m.call_args.args[0] == "USD"
+        row = next(e for e in client.get("/expenses", headers=h).json() if e["id"] == eid)
+        assert row["currency"] == "EUR"
+        assert row["total_amount"] == 18.0
+
+    def test_failed_reconvert_leaves_row_unchanged_with_warning(self, client):
+        from unittest.mock import patch
+        h = {"x-smartspend-guest-id": "guest-recon-fail"}
+        eid = client.post("/expenses", headers=h, json={
+            "vendor": "No Rate", "total_amount": 500.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
+        }).json()["id"]
+        client.put("/account-settings", headers=h, json={"currency": "USD"})
+
+        with patch.object(main.ocr_engine, "get_historical_rate",
+                          return_value=(None, None, "no rate")):
+            r = client.post("/expenses/reconvert", headers=h)
+        assert r.json() == {"reconverted": 0, "failed": 1, "skipped": 0}
+        row = next(e for e in client.get("/expenses", headers=h).json() if e["id"] == eid)
+        # Amount + currency untouched, warning explains why.
+        assert row["currency"] == "INR"
+        assert row["total_amount"] == 500.0
+        assert row["currency_warning"] is not None
+
+    def test_already_preferred_rows_are_skipped(self, client):
+        h = {"x-smartspend-guest-id": "guest-recon-skip"}
+        client.put("/account-settings", headers=h, json={"currency": "INR"})
+        client.post("/expenses", headers=h, json={
+            "vendor": "Local", "total_amount": 100.0, "date": "2024-05-01",
+            "currency": "INR", "source_currency": "INR",
+        })
+        r = client.post("/expenses/reconvert", headers=h)
+        assert r.json()["reconverted"] == 0
+        assert r.json()["skipped"] == 1
+
+    def test_reconvert_scoped_to_caller_only(self, client):
+        from unittest.mock import patch
+        owner = {"x-smartspend-guest-id": "guest-recon-owner"}
+        other = {"x-smartspend-guest-id": "guest-recon-other"}
+        other_eid = client.post("/expenses", headers=other, json={
+            "vendor": "Other's", "total_amount": 700.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
+        }).json()["id"]
+        client.post("/expenses", headers=owner, json={
+            "vendor": "Mine", "total_amount": 830.0, "date": "2024-05-01",
+            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
+        })
+        client.put("/account-settings", headers=owner, json={"currency": "USD"})
+
+        with patch.object(main.ocr_engine, "get_historical_rate",
+                          return_value=(0.012, "2024-05-01", None)):
+            client.post("/expenses/reconvert", headers=owner)
+
+        # Other user's row must be untouched.
+        other_row = next(e for e in client.get("/expenses", headers=other).json()
+                         if e["id"] == other_eid)
+        assert other_row["currency"] == "INR"
+        assert other_row["total_amount"] == 700.0
+
+    def test_requires_identity(self, client):
+        assert client.post("/expenses/reconvert").status_code == 401

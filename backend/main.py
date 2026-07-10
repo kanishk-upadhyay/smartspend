@@ -661,10 +661,100 @@ def delete_expense(expense_id: int, request: Request, db: Session = Depends(get_
     db.commit()
     return {"id": expense_id, "deleted": True}
 
+@app.post("/expenses/reconvert")
+def reconvert_expenses(request: Request, db: Session = Depends(get_db)):
+    """Reconvert the caller's expenses into their preferred currency.
+
+    Scope is strictly the resolved owner. Each row whose stored `currency`
+    already matches the preferred currency is skipped. For the rest we convert
+    from the row's original source amount at the receipt date; on any FX failure
+    the row is left untouched and only a warning is written, so a wrong amount is
+    never persisted.
+    """
+    owner_id, _, _ = _resolve_identity(request)
+
+    settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
+    preferred = (settings.currency if settings and settings.currency else "INR").upper()
+
+    expenses = db.query(Expense).filter(Expense.owner_id == owner_id).all()
+
+    reconverted = 0
+    failed = 0
+    skipped = 0
+
+    for expense in expenses:
+        current_currency = (expense.currency or "INR").upper()
+        if current_currency == preferred:
+            skipped += 1
+            continue
+
+        # Determine the source amount + currency to convert FROM. If the row has
+        # a raw_total_amount it was captured after a conversion, so raw_total in
+        # source_currency is the ground truth. Otherwise the row was captured
+        # natively in `currency`, so treat total_amount/currency as the source.
+        if expense.raw_total_amount is not None:
+            source_amount = float(expense.raw_total_amount)
+            source_currency = (expense.source_currency or current_currency).upper()
+        else:
+            source_amount = float(expense.total_amount or 0.0)
+            source_currency = current_currency
+
+        rate, query_date, warning = ocr_engine.get_historical_rate(
+            source_currency, preferred, expense.receipt_date or expense.date
+        )
+        if rate is None or query_date is None:
+            expense.currency_warning = (
+                warning
+                or f"Could not reconvert {source_currency} to {preferred} using the receipt date."
+            )
+            failed += 1
+            continue
+
+        expense.total_amount = round(source_amount * rate, 2)
+        expense.currency = preferred
+        expense.source_currency = source_currency
+        expense.raw_total_amount = source_amount
+        expense.fx_rate_date = query_date
+        expense.currency_warning = None
+
+        # Keep line items consistent with the new base. Per-item raw_amount (the
+        # amount in source_currency) is the source of truth when present; fall
+        # back to the item's stored amount otherwise.
+        try:
+            items = json.loads(expense.items_json or "[]")
+        except Exception:
+            items = []
+        if items:
+            for item in items:
+                item_source = item.get("raw_amount")
+                if item_source is None:
+                    item_source = item.get("amount", 0.0)
+                try:
+                    item_source = float(item_source)
+                except (TypeError, ValueError):
+                    item_source = 0.0
+                item["raw_amount"] = item_source
+                item["amount"] = round(item_source * rate, 2)
+                item["currency"] = preferred
+                item["source_currency"] = source_currency
+                item["fx_rate_date"] = query_date
+            expense.items_json = json.dumps(items)
+
+        reconverted += 1
+
+    if reconverted or failed:
+        db.commit()
+
+    return {"reconverted": reconverted, "failed": failed, "skipped": skipped}
+
+
 @app.post("/upload")
-async def upload_receipt(request: Request, payload: UploadRequest):
+async def upload_receipt(request: Request, payload: UploadRequest, db: Session = Depends(get_db)):
     owner_id, _, _ = _resolve_identity(request)
     _check_upload_rate(owner_id)
+
+    settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
+    base_currency = (settings.currency if settings and settings.currency else "INR")
 
     original_name = payload.filename or ""
     ext = os.path.splitext(original_name)[1].lower()
@@ -695,7 +785,7 @@ async def upload_receipt(request: Request, payload: UploadRequest):
         buffer.write(raw_bytes)
 
     try:
-        extracted_data = ocr_engine.extract_data(file_path)
+        extracted_data = ocr_engine.extract_data(file_path, base_currency=base_currency)
     except ReceiptExtractionError as exc:
         if os.path.isfile(file_path):
             os.remove(file_path)
