@@ -135,6 +135,9 @@ const TOOLTIP_FILL_LIGHT = 'oklch(92% 0 0 / 0.4)';
 const TOOLTIP_FILL_DARK = 'oklch(28% 0 0 / 0.4)';
 
 const DEFAULT_CURRENCY = 'INR';
+// Common ISO 4217 codes offered in the account preference. A closed list keeps a
+// typo from producing a nonsense code (e.g. "XYZ 1,234") anywhere it's formatted.
+const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'AED', 'SGD'];
 const DEFAULT_CATEGORY = 'General';
 const BASE_CATEGORY_OPTIONS = ['Food', 'Groceries', 'Transport', 'Travel', 'Shopping', 'Bills', 'Medical', 'Entertainment', 'Education', DEFAULT_CATEGORY];
 const LAST_RECEIPT_CURRENCY_KEY = 'smartspend:lastReceiptCurrency';
@@ -386,6 +389,13 @@ export default function App() {
   });
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  // PASSWORD_RECOVERY (Supabase) puts the app into a "set a new password" mode.
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [expensesError, setExpensesError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(true);
   const isGuestSession = !session?.user;
 
   // Theme-aware chart colors
@@ -511,6 +521,24 @@ export default function App() {
       if (!active) return;
       setSession(nextSession);
       setAuthReady(true);
+      if (_event === 'SIGNED_OUT') {
+        // Multi-tab / expired-session sign-out: clear the previous identity's
+        // in-memory state so a re-render never shows their data (see resetClientState).
+        setAccountDraft({ displayName: '', email: '', avatarUrl: '', currency: DEFAULT_CURRENCY });
+        setExpenses([]);
+        setResult(null);
+        setEditDraft(null);
+        setPrefetchedResults([]);
+        setPendingFiles([]);
+        setCurrentFileName(null);
+        setAuthName('');
+        setAuthEmail('');
+        setCustomCategories(loadCustomCategories());
+      } else if (_event === 'PASSWORD_RECOVERY') {
+        // User returned from a reset link — surface the "set a new password" form.
+        setRecoveryMode(true);
+        setCurrentView('account');
+      }
     });
 
     return () => {
@@ -724,15 +752,21 @@ export default function App() {
   }), [guestSessionId, accessToken]);
 
   const fetchExpenses = useCallback(async () => {
+    setListLoading(true);
     try {
       const response = await axios.get<Expense[]>(`${API_URL}/expenses`, requestConfig);
       const uniqueExpenses = Array.from(
         new Map(response.data.map((expense: Expense) => [expense.id, expense])).values()
       ).reverse() as Expense[];
       setExpenses(uniqueExpenses);
+      setExpensesError(null);
     } catch (error) {
       console.error('Fetch failed:', error);
-      setAnnouncement(`Unable to load expenses: ${getErrorMessage(error, 'Unknown error')}`);
+      const message = getErrorMessage(error, 'Unknown error');
+      setExpensesError(message);
+      setAnnouncement(`Unable to load expenses: ${message}`);
+    } finally {
+      setListLoading(false);
     }
   }, [requestConfig]);
 
@@ -995,10 +1029,35 @@ export default function App() {
     }
   };
 
+  // Wipe transient in-memory user state on sign-out so the next identity (or the
+  // guest fallback) never sees the previous user's drafts, receipts, or profile.
+  // The guest localStorage id and persisted custom categories are intentionally
+  // left alone — fetchExpenses/loadAccountSettings re-run on the session change
+  // and reload the correct guest data (custom categories reset via the guest loader
+  // to avoid a flicker rather than blanking to []).
+  const resetClientState = useCallback(() => {
+    setAccountDraft({
+      displayName: '',
+      email: '',
+      avatarUrl: '',
+      currency: DEFAULT_CURRENCY,
+    });
+    setExpenses([]);
+    setResult(null);
+    setEditDraft(null);
+    setPrefetchedResults([]);
+    setPendingFiles([]);
+    setCurrentFileName(null);
+    setAuthName('');
+    setAuthEmail('');
+    setCustomCategories(loadCustomCategories());
+  }, []);
+
   const signOut = async () => {
     const client = supabase;
     if (!client) {
       setSession(null);
+      resetClientState();
       return;
     }
     setAuthBusy(true);
@@ -1007,11 +1066,63 @@ export default function App() {
       const { error } = await client.auth.signOut();
       if (error) throw error;
       setSession(null);
+      resetClientState();
       setAnnouncement('Signed out');
     } catch (error) {
       setAuthError(getErrorMessage(error, 'Sign-out failed.'));
     } finally {
       setAuthBusy(false);
+    }
+  };
+
+  const requestPasswordReset = async () => {
+    const client = supabase;
+    if (!client) {
+      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
+      return;
+    }
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError('Enter your email first, then request a reset link.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/`,
+      });
+      if (error) throw error;
+      setAuthNotice('Password reset link sent — check your email.');
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Unable to send reset link.'));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const submitNewPassword = async () => {
+    const client = supabase;
+    if (!client) return;
+    if (recoveryPassword.length < 6) {
+      setAuthError('Password must be at least 6 characters.');
+      return;
+    }
+    setRecoveryBusy(true);
+    setAuthError(null);
+    try {
+      const { error } = await client.auth.updateUser({ password: recoveryPassword });
+      if (error) throw error;
+      setRecoveryMode(false);
+      setRecoveryPassword('');
+      setAuthNotice(null);
+      pushToast({ message: 'Password updated.', tone: 'accent' });
+      setAnnouncement('Password updated');
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Unable to update password.'));
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
@@ -1060,6 +1171,7 @@ export default function App() {
         });
       }
       setAnnouncement('Account settings saved');
+      pushToast({ message: 'Account settings saved.', tone: 'accent' });
       if (payload.email) setAuthEmail(payload.email);
       if (payload.theme) setThemePreference(payload.theme);
     } catch (error) {
@@ -1213,6 +1325,24 @@ export default function App() {
     deletionTimers.current.set(exp.id, timer);
   };
 
+  // Visible failure state for the expense fetch, with a Retry that re-runs it.
+  // Rendered above each view's body so an empty chart/list never reads as "no data".
+  const expensesErrorBanner = expensesError ? (
+    <div
+      className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-[var(--color-accent)] bg-[var(--color-surface)] p-4"
+      style={{ borderRadius: 'var(--radius-md)' }}
+      role="alert"
+    >
+      <div>
+        <p className="micro-label text-[var(--color-accent)]">Couldn't load receipts</p>
+        <p className="font-body text-sm text-[var(--color-soft-charcoal)] mt-1">{expensesError}</p>
+      </div>
+      <button type="button" onClick={() => fetchExpenses()} className="btn-primary btn--sm self-start sm:self-auto">
+        Retry
+      </button>
+    </div>
+  ) : null;
+
   const navItem = (view: View, label: string, Icon: React.ComponentType<{ className?: string }>) => {
     const active = currentView === view;
     return (
@@ -1315,6 +1445,8 @@ export default function App() {
                     {expenses.length} {expenses.length === 1 ? 'receipt' : 'receipts'} · {formatMoney(totalSpent, DEFAULT_CURRENCY)} total.
                   </p>
                 </header>
+
+                {expensesErrorBanner}
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                   {/* Capture */}
@@ -1636,7 +1768,10 @@ export default function App() {
                   </p>
                 </header>
 
+                {expensesErrorBanner}
+
                 {chartData.length === 0 ? (
+                  (!listLoading && !expensesError) && (
                   <div className="py-16 sm:py-24">
                     <p className="display-italic text-[var(--color-deep-graphite)]" style={{ fontSize: 'clamp(2rem, 5vw, 3.25rem)' }}>
                       Nothing yet.
@@ -1648,6 +1783,7 @@ export default function App() {
                       Drop your first receipt on the Dashboard.
                     </p>
                   </div>
+                  )
                 ) : (
                   <div className="space-y-12 sm:space-y-16 lg:space-y-20">
                     {/* Top-line: total as an editorial statement, supporting metrics demoted */}
@@ -2008,7 +2144,59 @@ export default function App() {
                     <div>
                     <p className="micro-label mb-6">Session</p>
                     <div className="border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-6" style={{ borderRadius: 'var(--radius-lg)' }}>
-                      {isSignedIn ? (
+                      {recoveryMode ? (
+                        <>
+                          <div className="space-y-2">
+                            <p className="micro-label text-[var(--color-accent)]">Reset password</p>
+                            <p className="headline text-2xl text-[var(--color-deep-graphite)]">Set a new password.</p>
+                            <p className="font-body text-sm text-[var(--color-soft-charcoal)]">
+                              Choose a new password for {session?.user?.email || 'your account'}.
+                            </p>
+                          </div>
+                          <div>
+                            <label htmlFor="recovery-password" className="micro-label block mb-2">New password</label>
+                            <div className="relative">
+                              <input
+                                id="recovery-password"
+                                value={recoveryPassword}
+                                onChange={(e) => setRecoveryPassword(e.target.value)}
+                                type={showPassword ? 'text' : 'password'}
+                                autoComplete="new-password"
+                                className="input-editorial pr-12"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(v => !v)}
+                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                aria-pressed={showPassword}
+                                className="tap-target absolute right-1 top-1/2 -translate-y-1/2 flex items-center text-[var(--color-mid-ash)] hover:text-[var(--color-accent)] transition-colors"
+                              >
+                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+                          {authError && (
+                            <p className="font-body text-sm text-[var(--color-accent)]">{authError}</p>
+                          )}
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={submitNewPassword}
+                              disabled={recoveryBusy}
+                              className="btn-primary"
+                            >
+                              {recoveryBusy ? 'Updating…' : 'Update password'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setRecoveryMode(false); setRecoveryPassword(''); setAuthError(null); }}
+                              className="btn-quiet"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : isSignedIn ? (
                         <>
                           <div className="space-y-2">
                             <p className="font-body text-sm text-[var(--color-mid-ash)]">Signed in as</p>
@@ -2090,11 +2278,24 @@ export default function App() {
                                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                               </div>
+                              {authMode === 'sign-in' && (
+                                <button
+                                  type="button"
+                                  onClick={requestPasswordReset}
+                                  disabled={authBusy}
+                                  className="btn-text mt-2"
+                                >
+                                  Forgot password?
+                                </button>
+                              )}
                             </div>
                           </div>
 
                           {authError && (
                             <p className="font-body text-sm text-[var(--color-accent)]">{authError}</p>
+                          )}
+                          {authNotice && (
+                            <p className="font-body text-sm text-[var(--color-soft-charcoal)]">{authNotice}</p>
                           )}
 
                           <div className="flex flex-wrap gap-3">
@@ -2159,13 +2360,37 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label className="micro-label block mb-2">Currency</label>
-                          <input
-                            value={accountDraft.currency}
-                            onChange={(e) => setAccountDraft(prev => ({ ...prev, currency: e.target.value.toUpperCase() }))}
-                            className="input-editorial"
-                            maxLength={3}
-                          />
+                          {/*
+                            H1 — This preference labels the receipt currency you deal in
+                            most; it does NOT re-denominate aggregates. Totals and charts
+                            stay in the base currency (INR) because each receipt is
+                            FX-converted to that base at capture time (see backend
+                            ocr_utils normalization) — swapping only the symbol would
+                            mislabel rupee sums as e.g. "$57,256". A closed <select>
+                            (vs free text) also prevents typo'd ISO codes.
+                          */}
+                          <label htmlFor="account-currency" className="micro-label block mb-2">Preferred currency</label>
+                          <div className="relative">
+                            <select
+                              id="account-currency"
+                              value={accountDraft.currency}
+                              onChange={(e) => setAccountDraft(prev => ({ ...prev, currency: e.target.value }))}
+                              className="input-editorial appearance-none pr-10"
+                            >
+                              {/* Include any previously-saved free-text code so the select
+                                  never silently blanks or rewrites an existing preference. */}
+                              {(CURRENCY_OPTIONS.includes(accountDraft.currency) || !accountDraft.currency
+                                ? CURRENCY_OPTIONS
+                                : [accountDraft.currency, ...CURRENCY_OPTIONS]
+                              ).map(code => (
+                                <option key={code} value={code}>{code}</option>
+                              ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-mid-ash)] pointer-events-none" />
+                          </div>
+                          <p className="font-body text-xs text-[var(--color-mid-ash)] mt-2">
+                            Your usual receipt currency. Totals stay in the base currency each receipt is converted to.
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -2272,6 +2497,8 @@ export default function App() {
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Every receipt, in order.</h1>
                 </header>
 
+                {expensesErrorBanner}
+
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-10">
                   <div className="flex-1 max-w-md relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-mid-ash)] pointer-events-none" />
@@ -2333,14 +2560,36 @@ export default function App() {
                 </div>
 
                 {filteredExpenses.length === 0 ? (
-                  <div className="py-32 text-center">
-                    <p className="title-italic text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2vw, 1.5rem)' }}>
-                      No receipts match.
-                    </p>
-                    <p className="font-body text-sm text-[var(--color-mid-ash)] mt-3">
-                      Adjust the search or filters above.
-                    </p>
-                  </div>
+                  (!listLoading && !expensesError) && (
+                    expenses.length === 0 ? (
+                      // Brand-new user with zero receipts (no active filter) — first-run state.
+                      <div className="py-32 text-center">
+                        <p className="title-italic text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2vw, 1.5rem)' }}>
+                          No receipts yet.
+                        </p>
+                        <p className="font-body text-sm text-[var(--color-mid-ash)] mt-3">
+                          Capture one on the Dashboard to start your ledger.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentView('dashboard')}
+                          className="btn-primary btn--sm mt-6"
+                        >
+                          Go to Dashboard
+                        </button>
+                      </div>
+                    ) : (
+                      // Receipts exist but a search/filter matched none.
+                      <div className="py-32 text-center">
+                        <p className="title-italic text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2vw, 1.5rem)' }}>
+                          No receipts match.
+                        </p>
+                        <p className="font-body text-sm text-[var(--color-mid-ash)] mt-3">
+                          Adjust the search or filters above.
+                        </p>
+                      </div>
+                    )
+                  )
                 ) : (
                   <>
                   <div className="md:hidden space-y-3">
