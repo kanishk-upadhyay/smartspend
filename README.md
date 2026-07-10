@@ -44,6 +44,8 @@ trajectory, and top merchants.
 
 ![Spending analytics](docs/analytics.png)
 
+<p align="center"><em>The bad news, visualized.</em></p>
+
 **Receipts** — every capture in one searchable, CSV-exportable ledger, across
 currencies.
 
