@@ -45,6 +45,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import database  # noqa: E402 — triggers DDL migrations against test DB
 import main       # noqa: E402
+import deps       # noqa: E402 — ocr_engine/_resolve_identity now live here; routers read them module-qualified
 from main import app, get_db  # noqa: E402
 
 # ── TEST ENGINE — same file as database.py used so schema already exists ──────
@@ -73,7 +74,9 @@ MOCK_EXTRACTED = {
 
 mock_ocr = MagicMock()
 mock_ocr.extract_data.return_value = MOCK_EXTRACTED
-main.ocr_engine = mock_ocr
+# Routers look up the OCR singleton as deps.ocr_engine (module-qualified), so
+# reassigning it here — not main.ocr_engine — is what all routers actually see.
+deps.ocr_engine = mock_ocr
 
 # ── SHARED CONSTANTS ──────────────────────────────────────────────────────────
 # Guest ids must carry the "guest-" prefix — the backend now rejects any
@@ -770,14 +773,14 @@ class TestGuestMigration:
     """Tests for POST /account-migrate-guest.
 
     Supabase is disabled in tests so _resolve_identity always returns a guest
-    identity.  Auth flows are exercised by patching main._resolve_identity.
+    identity.  Auth flows are exercised by patching deps._resolve_identity.
     """
 
     @staticmethod
     def _auth(user_id: str):
         from unittest.mock import patch
         return patch(
-            "main._resolve_identity",
+            "deps._resolve_identity",
             return_value=(user_id, "auth", {"id": user_id, "email": f"{user_id}@test.com",
                                             "user_metadata": {}}),
         )
@@ -788,7 +791,7 @@ class TestGuestMigration:
         # the x-smartspend-guest-id header so we bypass the same-id 400 and
         # hit the identity_type != "auth" guard that produces 401.
         from unittest.mock import patch
-        with patch("main._resolve_identity",
+        with patch("deps._resolve_identity",
                    return_value=("some-different-user", "guest", None)):
             r = client.post("/account-migrate-guest",
                             headers={"x-smartspend-guest-id": "guest-some-guest"})
@@ -908,7 +911,7 @@ class TestReconvert:
         client.put("/account-settings", headers=h, json={"currency": "USD"})
 
         # 1 INR = 0.012 USD  → 830 * 0.012 = 9.96
-        with patch.object(main.ocr_engine, "get_historical_rate",
+        with patch.object(deps.ocr_engine, "get_historical_rate",
                           return_value=(0.012, "2024-05-01", None)):
             r = client.post("/expenses/reconvert", headers=h)
         assert r.status_code == 200
@@ -937,7 +940,7 @@ class TestReconvert:
         client.put("/account-settings", headers=h, json={"currency": "EUR"})
 
         # Convert from the USD source (20) at 0.9 EUR/USD → 18.0, not from 1660 INR.
-        with patch.object(main.ocr_engine, "get_historical_rate",
+        with patch.object(deps.ocr_engine, "get_historical_rate",
                           return_value=(0.9, "2024-05-01", None)) as m:
             r = client.post("/expenses/reconvert", headers=h)
         assert r.json()["reconverted"] == 1
@@ -956,7 +959,7 @@ class TestReconvert:
         }).json()["id"]
         client.put("/account-settings", headers=h, json={"currency": "USD"})
 
-        with patch.object(main.ocr_engine, "get_historical_rate",
+        with patch.object(deps.ocr_engine, "get_historical_rate",
                           return_value=(None, None, "no rate")):
             r = client.post("/expenses/reconvert", headers=h)
         assert r.json() == {"reconverted": 0, "failed": 1, "skipped": 0}
@@ -991,7 +994,7 @@ class TestReconvert:
         })
         client.put("/account-settings", headers=owner, json={"currency": "USD"})
 
-        with patch.object(main.ocr_engine, "get_historical_rate",
+        with patch.object(deps.ocr_engine, "get_historical_rate",
                           return_value=(0.012, "2024-05-01", None)):
             client.post("/expenses/reconvert", headers=owner)
 
@@ -1029,7 +1032,7 @@ class TestReconvert:
                 return None, None, "Receipt date missing, cannot fetch historical FX rate."
             return 0.012, date_iso, None
 
-        with patch.object(main.ocr_engine, "get_historical_rate", side_effect=fake_rate):
+        with patch.object(deps.ocr_engine, "get_historical_rate", side_effect=fake_rate):
             r = client.post("/expenses/reconvert", headers=h)
 
         assert r.status_code == 200
