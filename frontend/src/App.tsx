@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
-import type { Session } from '@supabase/supabase-js';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import {
   Upload,
@@ -38,244 +37,39 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { applyThemePreference, getStoredThemePreference, THEME_STORAGE_KEY } from './lib/theme';
-import type { ThemePreference } from './lib/theme';
+import { useToasts } from './hooks/useToasts';
+import { useTheme } from './hooks/useTheme';
+import { useRequestConfig } from './hooks/useRequestConfig';
+import { useExpenses } from './hooks/useExpenses';
+import { useReceiptQueue } from './hooks/useReceiptQueue';
+import { useAuth } from './hooks/useAuth';
+import { useAccountSettings } from './hooks/useAccountSettings';
+import {
+  API_URL,
+  getReceiptUrl,
+  DEFAULT_CURRENCY,
+  CURRENCY_OPTIONS,
+  DEFAULT_CATEGORY,
+  BASE_CATEGORY_OPTIONS,
+  PREFERRED_HISTORY_CURRENCY_KEY,
+  saveToStorage,
+  formatMoney,
+  formatDate,
+  toDateInputValue,
+  isValidAmount,
+  getStoredPreferredHistoryCurrency,
+  getErrorMessage,
+  coerceItems,
+  editSignature,
+} from './lib/appConstants';
+import type {
+  Expense,
+  View,
+} from './lib/appConstants';
 
-const API_URL = (
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
-).replace(/\/$/, '');
-
-const getReceiptUrl = (imagePath: string) =>
-  /^https?:\/\//i.test(imagePath) ? imagePath : `${API_URL}/uploads/${imagePath}`;
-
-interface Expense {
-  id: number;
-  vendor: string;
-  total_amount: number;
-  date: string;
-  category: string;
-  currency?: string;
-  source_currency?: string;
-  raw_total_amount?: number;
-  receipt_date?: string;
-  fx_rate_date?: string | null;
-  currency_warning?: string | null;
-  item_warning?: string | null;
-  items?: { name: string; amount: number; raw_amount?: number; currency?: string; source_currency?: string; fx_rate_date?: string; qty?: number }[];
-  image_path?: string | null;
-}
-
-interface UploadResult {
-  filename?: string;
-  image_path?: string | null;
-  extracted_data: ExtractedData;
-}
-
-interface Toast {
-  id: number;
-  message: string;
-  tone?: 'info' | 'accent' | 'danger';
-  action?: { label: string; onClick: () => void };
-  duration?: number;
-}
-
-interface ExtractedData {
-  vendor: string;
-  total_amount: number;
-  date: string;
-  currency?: string;
-  source_currency?: string;
-  raw_total_amount?: number;
-  receipt_date?: string;
-  fx_rate_date?: string | null;
-  detected_currencies?: string[];
-  currency_warning?: string | null;
-  item_warning?: string | null;
-  items?: { name: string; amount: number; raw_amount?: number; currency?: string; source_currency?: string; fx_rate_date?: string; qty?: number }[];
-  category?: string;
-}
-
-interface AccountSettingsPayload {
-  display_name?: string | null;
-  email?: string | null;
-  avatar_url?: string | null;
-  currency?: string | null;
-  theme?: 'system' | 'light' | 'dark' | null;
-  custom_categories?: string[];
-}
-
-// Editorial palette — magenta carries the one-voice rule. Pie slices step through a
-// single-hue tonal scale (graphite → ash) with magenta only on the leading slice.
-const SLICE_COLORS_LIGHT = [
-  'oklch(60% 0.25 350)',
-  'oklch(25% 0 0)',
-  'oklch(40% 0 0)',
-  'oklch(55% 0 0)',
-  'oklch(70% 0 0)',
-  'oklch(82% 0 0)',
-];
-const SLICE_COLORS_DARK = [
-  'oklch(68% 0.22 350)',
-  'oklch(78% 0.01 350)',
-  'oklch(64% 0.01 350)',
-  'oklch(50% 0.01 350)',
-  'oklch(38% 0.01 350)',
-  'oklch(30% 0.01 350)',
-];
-const ACCENT_LIGHT = 'oklch(60% 0.25 350)';
-const ACCENT_DARK = 'oklch(68% 0.22 350)';
+// Editorial palette — magenta carries the one-voice rule. The theme-aware chart
+// colors live in useTheme; ACCENT_MUTED is theme-independent and stays here.
 const ACCENT_MUTED = 'oklch(60% 0.12 350)';
-const TEXT_DIM_LIGHT = 'oklch(55% 0 0)';
-const TEXT_DIM_DARK = 'oklch(78% 0 0)';
-const GRID_STROKE_LIGHT = 'oklch(92% 0 0)';
-const GRID_STROKE_DARK = 'oklch(28% 0 0)';
-const TOOLTIP_FILL_LIGHT = 'oklch(92% 0 0 / 0.4)';
-const TOOLTIP_FILL_DARK = 'oklch(28% 0 0 / 0.4)';
-
-const DEFAULT_CURRENCY = 'INR';
-// Common ISO 4217 codes offered in the account preference. A closed list keeps a
-// typo from producing a nonsense code (e.g. "XYZ 1,234") anywhere it's formatted.
-const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'AED', 'SGD'];
-const DEFAULT_CATEGORY = 'General';
-const BASE_CATEGORY_OPTIONS = ['Food', 'Groceries', 'Transport', 'Travel', 'Shopping', 'Bills', 'Medical', 'Entertainment', 'Education', DEFAULT_CATEGORY];
-const LAST_RECEIPT_CURRENCY_KEY = 'smartspend:lastReceiptCurrency';
-const PREFERRED_HISTORY_CURRENCY_KEY = 'smartspend:preferredHistoryCurrency';
-const CATEGORY_STORAGE_KEY = 'smartspend:custom-categories';
-const GUEST_SESSION_KEY = 'smartspend:guest-session';
-
-const loadOrCreateGuestSessionId = () => {
-  try {
-    const existing = localStorage.getItem(GUEST_SESSION_KEY);
-    if (existing) return existing;
-    const created = `guest-${crypto.randomUUID()}`;
-    localStorage.setItem(GUEST_SESSION_KEY, created);
-    return created;
-  } catch {
-    return `guest-${crypto.randomUUID()}`;
-  }
-};
-
-const loadCustomCategories = () => {
-  try {
-    const raw = localStorage.getItem(CATEGORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => String(value).trim())
-      .filter((value) => value.length > 0 && !BASE_CATEGORY_OPTIONS.includes(value));
-  } catch {
-    return [];
-  }
-};
-
-const saveToStorage = (key: string, value: string) => {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // ignore storage failures (private mode, quota, etc.)
-  }
-};
-
-const fileToBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      const commaIndex = result.indexOf(',');
-      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : '');
-    };
-    reader.onerror = () => reject(reader.error || new Error('Unable to read file'));
-    reader.readAsDataURL(file);
-  });
-
-const _moneyFmt = new Map<string, Intl.NumberFormat>();
-const formatMoney = (amount: number, currency = DEFAULT_CURRENCY) => {
-  try {
-    let fmt = _moneyFmt.get(currency);
-    if (!fmt) {
-      fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 });
-      _moneyFmt.set(currency, fmt);
-    }
-    return fmt.format(Number.isFinite(amount) ? amount : 0);
-  } catch {
-    return `${currency} ${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
-  }
-};
-
-const _dateFmt = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-const formatDate = (iso: string) => {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || 'Unknown';
-  try {
-    return _dateFmt.format(new Date(`${iso}T00:00:00`));
-  } catch {
-    return iso;
-  }
-};
-
-// Native <input type="date"> only accepts an ISO YYYY-MM-DD string (or empty).
-// OCR can yield "Unknown" or a malformed value — coerce anything non-ISO to ''
-// so the control stays valid/controlled and undated receipts render blank.
-const toDateInputValue = (value: string | null | undefined) =>
-  value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
-
-// A total/amount is saveable only if it parses to a finite, non-negative number.
-// Blocks empty and negative inputs before they reach the `Number(...) || 0` path.
-const isValidAmount = (value: unknown) => {
-  const raw = typeof value === 'string' ? value.trim() : value;
-  if (raw === '' || raw === null || raw === undefined) return false;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0;
-};
-
-const getStoredLastReceiptCurrency = () => {
-  try {
-    return localStorage.getItem(LAST_RECEIPT_CURRENCY_KEY);
-  } catch {
-    return null;
-  }
-};
-
-const getStoredPreferredHistoryCurrency = () => {
-  try {
-    return localStorage.getItem(PREFERRED_HISTORY_CURRENCY_KEY) || DEFAULT_CURRENCY;
-  } catch {
-    return DEFAULT_CURRENCY;
-  }
-};
-
-const getErrorMessage = (error: unknown, fallback: string) => {
-  const err = error as {
-    response?: { data?: { detail?: string; message?: string } };
-    message?: string;
-  } | undefined;
-  return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback;
-};
-
-type View = 'dashboard' | 'analytics' | 'history' | 'account';
-
-// Number inputs hold raw strings (so the field can be cleared); coerce at the
-// save boundary so the backend never persists a string in a numeric column.
-const coerceItems = (items: Expense['items']) =>
-  (items ?? []).map(i => ({
-    ...i,
-    amount: Number(i.amount) || 0,
-    qty: i.qty == null || (i.qty as unknown as string) === '' ? undefined : Number(i.qty),
-  }));
-
-// Stable signature of the user-editable fields, type-normalized so a number that
-// became a string while typing doesn't read as a change.
-const editSignature = (e: Expense) =>
-  JSON.stringify({
-    vendor: e.vendor,
-    date: e.date,
-    category: e.category,
-    currency: e.currency ?? '',
-    total_amount: Number(e.total_amount) || 0,
-    items: coerceItems(e.items),
-  });
 
 // Window-scroll virtualizer: renders only visible rows while keeping the app's
 // single-document scroll (no inner scrollbox), so large receipt lists stay fast.
@@ -356,226 +150,170 @@ function ChartFrame({ className, ariaLabel, children }: { className: string; ari
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [result, setResult] = useState<UploadResult | null>(null);
   const [showItemsModal, setShowItemsModal] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [historyCurrencyMode, setHistoryCurrencyMode] = useState<'converted' | 'source'>('converted');
-  const [lastReceiptCurrency, setLastReceiptCurrency] = useState<string | null>(getStoredLastReceiptCurrency);
   const [preferredHistoryCurrency, setPreferredHistoryCurrency] = useState<string>(getStoredPreferredHistoryCurrency);
-  const [category, setCategory] = useState(DEFAULT_CATEGORY);
-  const [categoryWasSuggested, setCategoryWasSuggested] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategories, setFilterCategories] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const filterPopoverRef = useRef<HTMLDivElement>(null);
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const [announcement, setAnnouncement] = useState<string>('');
-  const [showHeicHelper, setShowHeicHelper] = useState(false);
-  const [lastWasHeic, setLastWasHeic] = useState(false);
   const [editDraft, setEditDraft] = useState<Expense | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastIdRef = useRef(0);
+  const { toasts, pushToast, dismissToast } = useToasts();
   const deletionTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const editOriginalRef = useRef<string | null>(null);
-  const saveLockRef = useRef(false);
-  const [themePreference, setThemePreference] = useState<ThemePreference>(getStoredThemePreference);
-  const [authReady, setAuthReady] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
-  const [guestSessionId] = useState<string>(() => loadOrCreateGuestSessionId());
-  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [authName, setAuthName] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [customCategories, setCustomCategories] = useState<string[]>(loadCustomCategories);
-  const [categoryDraft, setCategoryDraft] = useState('');
-  const [prefetchedResults, setPrefetchedResults] = useState<UploadResult[]>([]);
-  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
-  const [accountDraft, setAccountDraft] = useState({
-    displayName: '',
-    email: '',
-    avatarUrl: '',
-    currency: DEFAULT_CURRENCY,
+  const {
+    themePreference,
+    setThemePreference,
+    setThemeAndPersist,
+    SLICE_COLORS,
+    ACCENT,
+    TEXT_DIM,
+    GRID_STROKE,
+    TOOLTIP_FILL,
+  } = useTheme();
+  // resetClientState is composed from the data hooks below, but useAuth (which
+  // runs first, so it can produce `session` for the data hooks) needs to call it
+  // on sign-out. A ref breaks that cycle: useAuth invokes the always-current
+  // composed reset without depending on its identity.
+  const resetClientStateRef = useRef<() => void>(() => {});
+  const callResetClientState = useCallback(() => resetClientStateRef.current(), []);
+
+  const {
+    authReady,
+    session,
+    guestSessionId,
+    authMode,
+    setAuthMode,
+    authEmail,
+    setAuthEmail,
+    authPassword,
+    setAuthPassword,
+    showPassword,
+    setShowPassword,
+    authName,
+    setAuthName,
+    authBusy,
+    authError,
+    setAuthError,
+    authNotice,
+    showResendConfirmation,
+    recoveryMode,
+    setRecoveryMode,
+    recoveryPassword,
+    setRecoveryPassword,
+    recoveryBusy,
+    isSignedIn,
+    submitAuth,
+    signOut,
+    requestPasswordReset,
+    resendConfirmation,
+    submitNewPassword,
+    keepGuestMode,
+  } = useAuth({
+    resetClientState: callResetClientState,
+    setAnnouncement,
+    pushToast,
+    setCurrentView,
   });
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [reconvertBusy, setReconvertBusy] = useState(false);
-  const [accountError, setAccountError] = useState<string | null>(null);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
-  // Reveal the "Resend confirmation email" affordance after a successful sign-up
-  // or when sign-in fails because the address is unconfirmed.
-  const [showResendConfirmation, setShowResendConfirmation] = useState(false);
-  // PASSWORD_RECOVERY (Supabase) puts the app into a "set a new password" mode.
-  const [recoveryMode, setRecoveryMode] = useState(false);
-  const [recoveryPassword, setRecoveryPassword] = useState('');
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [expensesError, setExpensesError] = useState<string | null>(null);
-  const [listLoading, setListLoading] = useState(true);
   const isGuestSession = !session?.user;
 
-  // Theme-aware chart colors
-  const isDarkTheme = themePreference === 'dark' || (themePreference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const SLICE_COLORS = isDarkTheme ? SLICE_COLORS_DARK : SLICE_COLORS_LIGHT;
-  const ACCENT = isDarkTheme ? ACCENT_DARK : ACCENT_LIGHT;
-  const TEXT_DIM = isDarkTheme ? TEXT_DIM_DARK : TEXT_DIM_LIGHT;
-  const GRID_STROKE = isDarkTheme ? GRID_STROKE_DARK : GRID_STROKE_LIGHT;
-  const TOOLTIP_FILL = isDarkTheme ? TOOLTIP_FILL_DARK : TOOLTIP_FILL_LIGHT;
+  const requestConfig = useRequestConfig(session, guestSessionId);
+  const {
+    expenses,
+    setExpenses,
+    expensesError,
+    listLoading,
+    searchQuery,
+    setSearchQuery,
+    filterCategories,
+    setFilterCategories,
+    toggleCategory,
+    clearFilters,
+    availableCategories,
+    filteredExpenses,
+    fetchExpenses,
+    exportCSV,
+    reset: resetExpenses,
+  } = useExpenses(requestConfig, setAnnouncement);
 
-  const availableCategories = useMemo(() => {
-    const s = Array.from(new Set(expenses.map(e => e.category))).sort();
-    return s.length ? s : [DEFAULT_CATEGORY];
-  }, [expenses]);
+  // Bridges the receipt-form category state (owned by useReceiptQueue, created
+  // below) into useAccountSettings.removeCustomCategory without a render cycle.
+  const categoryRef = useRef<{ category: string; setCategory: (value: string) => void }>({
+    category: DEFAULT_CATEGORY,
+    setCategory: () => {},
+  });
+
+  const {
+    accountDraft,
+    setAccountDraft,
+    accountBusy,
+    accountError,
+    reconvertBusy,
+    customCategories,
+    categoryDraft,
+    setCategoryDraft,
+    loadAccountSettings,
+    saveAccountSettings,
+    reconvertExistingReceipts,
+    addCustomCategory,
+    removeCustomCategory,
+    reset: resetAccount,
+  } = useAccountSettings({
+    requestConfig,
+    session,
+    authReady,
+    isGuestSession,
+    themePreference,
+    setThemePreference,
+    fetchExpenses,
+    setAnnouncement,
+    pushToast,
+    setAuthName,
+    setAuthEmail,
+    categoryRef,
+    setFilterCategories,
+  });
 
   const categoryOptions = useMemo(() => {
     const extras = customCategories.filter(cat => !BASE_CATEGORY_OPTIONS.includes(cat));
     return Array.from(new Set([...BASE_CATEGORY_OPTIONS, ...extras]));
   }, [customCategories]);
 
-  const toggleCategory = (cat: string) => {
-    setFilterCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
-  };
-
-  const clearFilters = () => setFilterCategories([]);
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  const pushToast = useCallback((toast: Omit<Toast, 'id'>): number => {
-    const id = ++toastIdRef.current;
-    const duration = toast.duration ?? 4000;
-    setToasts(prev => [...prev, { ...toast, id, duration }]);
-    if (duration > 0) {
-      setTimeout(() => dismissToast(id), duration);
-    }
-    return id;
-  }, [dismissToast]);
-
-  const promoteNextResult = useCallback(() => {
-    setPrefetchedResults(prev => {
-      if (prev.length === 0) {
-        setResult(null);
-        setCurrentFileName(null);
-        setCategoryWasSuggested(false);
-        return prev;
-      }
-
-      const [next, ...rest] = prev;
-      setResult(next);
-      setCurrentFileName(next.filename || null);
-      const suggested = next.extracted_data?.category;
-      if (suggested && BASE_CATEGORY_OPTIONS.concat(customCategories).includes(suggested)) {
-        setCategory(suggested);
-        setCategoryWasSuggested(true);
-      } else {
-        setCategory(DEFAULT_CATEGORY);
-        setCategoryWasSuggested(false);
-      }
-      return rest;
-    });
-  }, [customCategories]);
-
-  useEffect(() => {
-    if (!result && prefetchedResults.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      promoteNextResult();
-    }
-  }, [result, prefetchedResults, promoteNextResult]);
-
-  useEffect(() => {
-    applyThemePreference(themePreference);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, themePreference);
-    } catch {
-      // ignore storage failures
-    }
-  }, [themePreference]);
+  const {
+    loading,
+    isSaving,
+    result,
+    setResult,
+    lastReceiptCurrency,
+    category,
+    setCategory,
+    categoryWasSuggested,
+    setCategoryWasSuggested,
+    showHeicHelper,
+    setShowHeicHelper,
+    lastWasHeic,
+    pendingFiles,
+    isDragging,
+    setIsDragging,
+    prefetchedResults,
+    currentFileName,
+    handleFileUpload,
+    handleDrop,
+    skipCurrent,
+    clearQueue,
+    saveExpense,
+    reset: resetReceiptQueue,
+  } = useReceiptQueue(requestConfig, fetchExpenses, setAnnouncement, pushToast, categoryOptions, customCategories);
+  useLayoutEffect(() => {
+    categoryRef.current = { category, setCategory };
+  });
 
   useEffect(() => {
     const timers = deletionTimers.current;
     return () => {
       timers.forEach(clearTimeout);
       timers.clear();
-    };
-  }, []);
-
-  useEffect(() => {
-    try {
-      if (isGuestSession) {
-        localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(customCategories));
-      } else {
-        localStorage.removeItem(CATEGORY_STORAGE_KEY);
-      }
-    } catch {
-      // ignore storage failures
-    }
-  }, [customCategories, isGuestSession]);
-
-  useEffect(() => {
-    const client = supabase;
-    if (!isSupabaseConfigured || !client) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAuthReady(true);
-      return;
-    }
-
-    let active = true;
-    const bootstrap = async () => {
-      try {
-        const { data, error } = await client.auth.getSession();
-        if (!active) return;
-        if (error) {
-          setAuthError(error.message);
-        }
-        setSession(data.session);
-      } catch (err) {
-        // Never leave the app stuck on the loading gate if getSession rejects
-        // (network/config failure) — surface it and fall through to authReady.
-        if (active) setAuthError(getErrorMessage(err, 'Unable to restore session'));
-      } finally {
-        if (active) setAuthReady(true);
-      }
-    };
-
-    bootstrap();
-
-    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
-      if (!active) return;
-      setSession(nextSession);
-      setAuthReady(true);
-      if (_event === 'SIGNED_OUT') {
-        // Multi-tab / expired-session sign-out: clear the previous identity's
-        // in-memory state so a re-render never shows their data (see resetClientState).
-        setAccountDraft({ displayName: '', email: '', avatarUrl: '', currency: DEFAULT_CURRENCY });
-        setExpenses([]);
-        setResult(null);
-        setEditDraft(null);
-        setPrefetchedResults([]);
-        setPendingFiles([]);
-        setCurrentFileName(null);
-        setAuthName('');
-        setAuthEmail('');
-        // If a session expires while the "set a new password" form is open,
-        // don't strand the user in recovery mode with a dead session.
-        setRecoveryMode(false);
-        setRecoveryPassword('');
-        setCustomCategories(loadCustomCategories());
-      } else if (_event === 'PASSWORD_RECOVERY') {
-        // User returned from a reset link — surface the "set a new password" form.
-        setRecoveryMode(true);
-        setCurrentView('account');
-      }
-    });
-
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
     };
   }, []);
 
@@ -595,15 +333,6 @@ export default function App() {
     () => expenses.some(exp => (exp.currency || DEFAULT_CURRENCY) !== aggregateCurrency),
     [expenses, aggregateCurrency]
   );
-
-  const filteredExpenses = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return expenses.filter(exp => {
-      const matchesQuery = query === '' || exp.vendor.toLowerCase().includes(query) || exp.category.toLowerCase().includes(query);
-      const matchesCategory = filterCategories.length === 0 || filterCategories.includes(exp.category);
-      return matchesQuery && matchesCategory;
-    });
-  }, [expenses, searchQuery, filterCategories]);
 
   const chartData = useMemo(() => {
     const categories: Record<string, number> = {};
@@ -783,128 +512,14 @@ export default function App() {
       : selectedExpenseDisplayCurrency)
     : DEFAULT_CURRENCY;
   const queueRemainingCount = pendingFiles.length + prefetchedResults.length;
-  const isSignedIn = Boolean(session?.user);
   const identityLabel = isSignedIn
     ? (accountDraft.displayName.trim() || session?.user.email || 'Signed in')
     : `Guest ${guestSessionId.slice(-6)}`;
-  const accessToken = session?.access_token;
-  const requestConfig = useMemo(() => ({
-    headers: {
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      'X-SmartSpend-Guest-Id': guestSessionId,
-    },
-  }), [guestSessionId, accessToken]);
-
-  const fetchExpenses = useCallback(async () => {
-    setListLoading(true);
-    try {
-      const response = await axios.get<Expense[]>(`${API_URL}/expenses`, requestConfig);
-      const uniqueExpenses = Array.from(
-        new Map(response.data.map((expense: Expense) => [expense.id, expense])).values()
-      ).reverse() as Expense[];
-      setExpenses(uniqueExpenses);
-      setExpensesError(null);
-    } catch (error) {
-      console.error('Fetch failed:', error);
-      const message = getErrorMessage(error, 'Unknown error');
-      setExpensesError(message);
-      setAnnouncement(`Unable to load expenses: ${message}`);
-    } finally {
-      setListLoading(false);
-    }
-  }, [requestConfig]);
 
   useEffect(() => {
     if (!authReady) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchExpenses();
   }, [authReady, fetchExpenses]);
-
-  const loadAccountSettings = useCallback(async () => {
-    try {
-      if (session?.user) {
-        await axios.post(`${API_URL}/account-migrate-guest`, {}, requestConfig);
-      }
-      const response = await axios.get<AccountSettingsPayload>(`${API_URL}/account-settings`, requestConfig);
-      const storedCategories = loadCustomCategories();
-      const nextTheme = response.data.theme === 'light' || response.data.theme === 'dark' || response.data.theme === 'system'
-        ? response.data.theme
-        : getStoredThemePreference();
-      setAccountDraft({
-        displayName: response.data.display_name || '',
-        email: response.data.email || session?.user?.email || '',
-        avatarUrl: response.data.avatar_url || '',
-        currency: response.data.currency || DEFAULT_CURRENCY,
-      });
-      setAuthName(response.data.display_name || '');
-      setAuthEmail(response.data.email || session?.user?.email || '');
-      setCustomCategories(
-        session?.user
-          ? (response.data.custom_categories || [])
-          : ((response.data.custom_categories && response.data.custom_categories.length > 0)
-            ? response.data.custom_categories
-            : storedCategories)
-      );
-      setThemePreference(nextTheme);
-      setAccountError(null);
-    } catch (error) {
-      setAccountError(getErrorMessage(error, 'Unable to load account settings.'));
-    }
-  }, [requestConfig, session]);
-
-  useEffect(() => {
-    if (!authReady) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadAccountSettings();
-  }, [authReady, loadAccountSettings]);
-
-  const isHeicFile = (f: File) => {
-    const lower = (f.type || f.name || '').toLowerCase();
-    return lower.includes('heic') || lower.includes('heif') ||
-      f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif');
-  };
-
-  const enqueueFiles = (incoming: File[]) => {
-    const heicCount = incoming.filter(isHeicFile).length;
-    const acceptable = incoming.filter(f => !isHeicFile(f));
-
-    if (heicCount > 0) {
-      setLastWasHeic(true);
-      pushToast({
-        message: heicCount === incoming.length
-          ? 'HEIC / HEIF can\'t be previewed in browsers. Convert to JPEG or PNG.'
-          : `Skipped ${heicCount} HEIC/HEIF file${heicCount === 1 ? '' : 's'} — convert to JPEG/PNG.`,
-        tone: 'danger',
-        duration: 5000,
-      });
-    } else {
-      setLastWasHeic(false);
-    }
-
-    if (!acceptable.length) return;
-
-    setPendingFiles(prev => [...prev, ...acceptable]);
-    setAnnouncement(
-      acceptable.length === 1
-        ? `Queued ${acceptable[0].name}.`
-        : `Queued ${acceptable.length} receipts.`
-    );
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length) {
-      enqueueFiles(Array.from(e.target.files));
-      try { e.target.value = ''; } catch (err) { console.warn('Could not clear file input', err); }
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer?.files?.length) {
-      enqueueFiles(Array.from(e.dataTransfer.files));
-    }
-  };
 
   const closeEdit = useCallback(() => {
     if (editDraft && editOriginalRef.current && editSignature(editDraft) !== editOriginalRef.current) {
@@ -935,7 +550,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editDraft, showHeicHelper, showItemsModal, closeEdit, filterOpen, closeFilter]);
+  }, [editDraft, showHeicHelper, showItemsModal, closeEdit, filterOpen, closeFilter, setShowHeicHelper]);
 
   // Dismiss the filter popover on a pointerdown outside it (ignoring the trigger,
   // whose own onClick toggles the state).
@@ -961,420 +576,24 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [editDraft, result]);
 
-  const runOcr = useCallback(async (file: File) => {
-    setLoading(true);
-    setPendingFiles(prev => prev.slice(1));
-    const shouldDisplayNow = !result;
-    if (shouldDisplayNow) {
-      setCurrentFileName(file.name);
-    }
-    try {
-      const response = await axios.post<UploadResult>(`${API_URL}/upload`, {
-        filename: file.name,
-        content_type: file.type || undefined,
-        data_base64: await fileToBase64(file),
-      }, requestConfig);
-      if (shouldDisplayNow) {
-        setResult(response.data);
-        setCurrentFileName(response.data.filename || file.name);
-      } else {
-        setPrefetchedResults(prev => [...prev, response.data]);
-      }
-      const suggested = response.data?.extracted_data?.category;
-      if (shouldDisplayNow && suggested && categoryOptions.includes(suggested)) {
-        setCategory(suggested);
-        setCategoryWasSuggested(true);
-      } else if (shouldDisplayNow) {
-        setCategory(DEFAULT_CATEGORY);
-        setCategoryWasSuggested(false);
-      }
-      const warn = response.data?.extracted_data?.item_warning || response.data?.extracted_data?.currency_warning;
-      if (warn) {
-        pushToast({ message: warn, tone: 'accent', duration: 5000 });
-      }
-      setAnnouncement(warn || `Read ${file.name}`);
-    } catch (error: unknown) {
-      console.error('Upload failed:', error);
-      const msg = getErrorMessage(error, 'Upload failed');
-      pushToast({ message: `${file.name}: ${msg}`, tone: 'danger', duration: 5000 });
-      setAnnouncement(`Upload failed: ${msg}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [result, categoryOptions, pushToast, requestConfig]);
-
-  useEffect(() => {
-    if (!loading && pendingFiles.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      runOcr(pendingFiles[0]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingFiles, loading]);
-
-  const skipCurrent = () => {
-    setResult(null);
-    setCategoryWasSuggested(false);
-    setCurrentFileName(null);
-    setAnnouncement('Skipped');
-  };
-
-  const clearQueue = () => {
-    setPendingFiles([]);
-    setPrefetchedResults([]);
-    setResult(null);
-    setCurrentFileName(null);
-    setCategoryWasSuggested(false);
-    setAnnouncement('Queue cleared');
-  };
-
-  const addCustomCategory = () => {
-    const nextCategory = categoryDraft.trim();
-    if (!nextCategory) return;
-    setCustomCategories(prev => prev.includes(nextCategory) ? prev : [...prev, nextCategory]);
-    setCategoryDraft('');
-    setAnnouncement(`Added category ${nextCategory}`);
-  };
-
-  const removeCustomCategory = (categoryName: string) => {
-    if (BASE_CATEGORY_OPTIONS.includes(categoryName)) return;
-    setCustomCategories(prev => prev.filter(cat => cat !== categoryName));
-    setFilterCategories(prev => prev.filter(cat => cat !== categoryName));
-    if (category === categoryName) {
-      setCategory(DEFAULT_CATEGORY);
-    }
-    setAnnouncement(`Removed category ${categoryName}`);
-  };
-
-  const submitAuth = async (mode: 'sign-in' | 'sign-up') => {
-    const client = supabase;
-    if (!client) {
-      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
-      return;
-    }
-
-    setAuthBusy(true);
-    setAuthError(null);
-    setAuthNotice(null);
-    try {
-      const email = authEmail.trim();
-      if (!email || !authPassword) {
-        throw new Error('Email and password are required.');
-      }
-      if (mode === 'sign-in') {
-        const { error } = await client.auth.signInWithPassword({ email, password: authPassword });
-        if (error) {
-          // Supabase reports an unconfirmed address here — offer a resend.
-          if (/email\s*not\s*confirmed/i.test(error.message || '')) {
-            setShowResendConfirmation(true);
-          }
-          throw error;
-        }
-        setShowResendConfirmation(false);
-        setAnnouncement(`Signed in as ${email}`);
-      } else {
-        const { data, error } = await client.auth.signUp({
-          email,
-          password: authPassword,
-          options: {
-            // Send the confirmation link back to wherever the app is actually
-            // served (prod or local dev) instead of Supabase's default Site URL.
-            emailRedirectTo: `${window.location.origin}/`,
-            data: {
-              display_name: authName.trim() || email.split('@')[0],
-            },
-          },
-        });
-        if (error) throw error;
-        // With enumeration protection on, Supabase doesn't error on a duplicate
-        // email — it returns a user with an empty `identities` array. Flag it
-        // so people aren't told an account was created when it wasn't.
-        if (data.user && (data.user.identities?.length ?? 0) === 0) {
-          setAuthMode('sign-in');
-          throw new Error('That email is already registered — sign in instead.');
-        }
-        setAnnouncement(`Account created for ${email}`);
-        setAuthNotice('Account created — check your email to confirm, then sign in.');
-        setShowResendConfirmation(true);
-        setAuthMode('sign-in');
-      }
-      setAuthPassword('');
-    } catch (error) {
-      setAuthError(getErrorMessage(error, 'Authentication failed.'));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
   // Wipe transient in-memory user state on sign-out so the next identity (or the
   // guest fallback) never sees the previous user's drafts, receipts, or profile.
   // The guest localStorage id and persisted custom categories are intentionally
   // left alone — fetchExpenses/loadAccountSettings re-run on the session change
   // and reload the correct guest data (custom categories reset via the guest loader
   // to avoid a flicker rather than blanking to []).
+  //
+  // This covers only the non-auth state; useAuth adds the auth-form / recovery
+  // resets that differ between the explicit signOut and the SIGNED_OUT event.
   const resetClientState = useCallback(() => {
-    setAccountDraft({
-      displayName: '',
-      email: '',
-      avatarUrl: '',
-      currency: DEFAULT_CURRENCY,
-    });
-    setExpenses([]);
-    setResult(null);
+    resetAccount();
+    resetExpenses();
+    resetReceiptQueue();
     setEditDraft(null);
-    setPrefetchedResults([]);
-    setPendingFiles([]);
-    setCurrentFileName(null);
-    setAuthName('');
-    setAuthEmail('');
-    setShowResendConfirmation(false);
-    setCustomCategories(loadCustomCategories());
-  }, []);
-
-  const signOut = async () => {
-    const client = supabase;
-    if (!client) {
-      setSession(null);
-      resetClientState();
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      const { error } = await client.auth.signOut();
-      if (error) throw error;
-      setSession(null);
-      resetClientState();
-      setAnnouncement('Signed out');
-    } catch (error) {
-      setAuthError(getErrorMessage(error, 'Sign-out failed.'));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const requestPasswordReset = async () => {
-    const client = supabase;
-    if (!client) {
-      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
-      return;
-    }
-    const email = authEmail.trim();
-    if (!email) {
-      setAuthError('Enter your email first, then request a reset link.');
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError(null);
-    setAuthNotice(null);
-    try {
-      const { error } = await client.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/`,
-      });
-      if (error) throw error;
-      setAuthNotice('Password reset link sent — check your email.');
-    } catch (error) {
-      setAuthError(getErrorMessage(error, 'Unable to send reset link.'));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const resendConfirmation = async () => {
-    const client = supabase;
-    if (!client) {
-      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
-      return;
-    }
-    const email = authEmail.trim();
-    if (!email) {
-      setAuthError('Enter your email first, then resend the confirmation link.');
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError(null);
-    setAuthNotice(null);
-    try {
-      const { error } = await client.auth.resend({
-        type: 'signup',
-        email,
-        options: { emailRedirectTo: `${window.location.origin}/` },
-      });
-      if (error) throw error;
-      setAuthNotice('Confirmation email resent — check your inbox.');
-    } catch (error) {
-      setAuthError(getErrorMessage(error, 'Unable to resend confirmation email.'));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const submitNewPassword = async () => {
-    const client = supabase;
-    if (!client) return;
-    if (recoveryPassword.length < 6) {
-      setAuthError('Password must be at least 6 characters.');
-      return;
-    }
-    setRecoveryBusy(true);
-    setAuthError(null);
-    try {
-      const { error } = await client.auth.updateUser({ password: recoveryPassword });
-      if (error) throw error;
-      setRecoveryMode(false);
-      setRecoveryPassword('');
-      setAuthNotice(null);
-      pushToast({ message: 'Password updated.', tone: 'accent' });
-      setAnnouncement('Password updated');
-    } catch (error) {
-      setAuthError(getErrorMessage(error, 'Unable to update password.'));
-    } finally {
-      setRecoveryBusy(false);
-    }
-  };
-
-  const keepGuestMode = () => {
-    loadOrCreateGuestSessionId();
-    setSession(null);
-    setAnnouncement('Guest session active');
-    setCurrentView('dashboard');
-  };
-
-  const setThemeAndPersist = (nextTheme: ThemePreference) => {
-    setThemePreference(nextTheme);
-    applyThemePreference(nextTheme);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-    } catch {
-      // ignore storage failures
-    }
-  };
-
-  const saveAccountSettings = async () => {
-    setAccountBusy(true);
-    setAccountError(null);
-    try {
-      const payload: AccountSettingsPayload = {
-        display_name: accountDraft.displayName.trim() || null,
-        email: accountDraft.email.trim() || null,
-        avatar_url: accountDraft.avatarUrl.trim() || null,
-        currency: accountDraft.currency || DEFAULT_CURRENCY,
-        theme: themePreference,
-        custom_categories: customCategories,
-      };
-      await axios.put(`${API_URL}/account-settings`, payload, requestConfig);
-      const client = supabase;
-      if (session?.user && client) {
-        const metadata = {
-          display_name: payload.display_name || '',
-          avatar_url: payload.avatar_url || '',
-          currency: payload.currency || DEFAULT_CURRENCY,
-          theme: payload.theme || 'system',
-          custom_categories: payload.custom_categories || [],
-        };
-        await client.auth.updateUser({
-          ...(payload.email && payload.email !== session.user.email ? { email: payload.email } : {}),
-          data: metadata,
-        });
-      }
-      setAnnouncement('Account settings saved');
-      pushToast({ message: 'Account settings saved.', tone: 'accent' });
-      if (payload.email) setAuthEmail(payload.email);
-      if (payload.theme) setThemePreference(payload.theme);
-    } catch (error) {
-      setAccountError(getErrorMessage(error, 'Unable to save account settings.'));
-    } finally {
-      setAccountBusy(false);
-    }
-  };
-
-  const reconvertExistingReceipts = async () => {
-    const preferred = accountDraft.currency || DEFAULT_CURRENCY;
-    setReconvertBusy(true);
-    try {
-      const response = await axios.post<{ reconverted: number; failed: number; skipped: number }>(
-        `${API_URL}/expenses/reconvert`,
-        {},
-        requestConfig,
-      );
-      const { reconverted, failed } = response.data;
-      const noun = reconverted === 1 ? 'receipt' : 'receipts';
-      const message = reconverted > 0
-        ? `Reconverted ${reconverted} ${noun} to ${preferred}${failed ? ` · ${failed} couldn't be converted` : ''}.`
-        : failed > 0
-          ? `Couldn't reconvert ${failed} ${failed === 1 ? 'receipt' : 'receipts'} — no FX rate for their dates.`
-          : `Everything is already in ${preferred}.`;
-      pushToast({ message, tone: failed > 0 && reconverted === 0 ? 'danger' : 'accent', duration: 5000 });
-      await fetchExpenses();
-    } catch (error) {
-      pushToast({ message: `Reconvert failed: ${getErrorMessage(error, 'Unknown error')}`, tone: 'danger', duration: 5000 });
-    } finally {
-      setReconvertBusy(false);
-    }
-  };
-
-  const saveExpense = async () => {
-    if (!result || isSaving || saveLockRef.current) return;
-    saveLockRef.current = true;
-    setIsSaving(true);
-    try {
-      const sourceCurrency = result.extracted_data.source_currency || DEFAULT_CURRENCY;
-      const receiptDate = result.extracted_data.receipt_date || result.extracted_data.date;
-      const payload = {
-        vendor: result.extracted_data.vendor,
-        total_amount: parseFloat(result.extracted_data.total_amount.toString()),
-        date: result.extracted_data.date,
-        category: category,
-        currency: result.extracted_data.currency || DEFAULT_CURRENCY,
-        source_currency: sourceCurrency,
-        raw_total_amount: result.extracted_data.raw_total_amount ?? result.extracted_data.total_amount,
-        receipt_date: receiptDate,
-        fx_rate_date: result.extracted_data.fx_rate_date || null,
-        currency_warning: result.extracted_data.currency_warning || null,
-        item_warning: result.extracted_data.item_warning || null,
-        items: coerceItems(result.extracted_data.items),
-        image_path: result.image_path || null,
-      };
-      await axios.post(`${API_URL}/expenses`, payload, requestConfig);
-      saveToStorage(LAST_RECEIPT_CURRENCY_KEY, sourceCurrency);
-      setLastReceiptCurrency(sourceCurrency);
-      setResult(null);
-      setCurrentFileName(null);
-      setCategoryWasSuggested(false);
-      pushToast({ message: `Saved ${payload.vendor || 'receipt'}.`, tone: 'accent' });
-      fetchExpenses();
-    } catch (error) {
-      console.error('Save failed:', error);
-      pushToast({ message: `Save failed: ${getErrorMessage(error, 'Unknown error')}`, tone: 'danger', duration: 5000 });
-      setAnnouncement(`Unable to save expense: ${getErrorMessage(error, 'Unknown error')}`);
-    } finally {
-      setIsSaving(false);
-      saveLockRef.current = false;
-    }
-  };
-
-  const exportCSV = () => {
-    const headers = ['id', 'vendor', 'category', 'date', 'total_amount', 'currency', 'source_currency', 'raw_total_amount'];
-    const rows = expenses.map(e => [
-      e.id,
-      '"' + String(e.vendor).replace(/"/g, '""') + '"',
-      e.category,
-      e.date,
-      e.total_amount,
-      e.currency || DEFAULT_CURRENCY,
-      e.source_currency || e.currency || DEFAULT_CURRENCY,
-      e.raw_total_amount ?? e.total_amount,
-    ].join(','));
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'expenses.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
+  }, [resetAccount, resetExpenses, resetReceiptQueue]);
+  useLayoutEffect(() => {
+    resetClientStateRef.current = resetClientState;
+  });
 
   const handleEditExpense = (exp: Expense) => {
     editOriginalRef.current = editSignature(exp);
