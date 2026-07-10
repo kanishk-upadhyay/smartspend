@@ -215,6 +215,21 @@ const formatDate = (iso: string) => {
   }
 };
 
+// Native <input type="date"> only accepts an ISO YYYY-MM-DD string (or empty).
+// OCR can yield "Unknown" or a malformed value — coerce anything non-ISO to ''
+// so the control stays valid/controlled and undated receipts render blank.
+const toDateInputValue = (value: string | null | undefined) =>
+  value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+
+// A total/amount is saveable only if it parses to a finite, non-negative number.
+// Blocks empty and negative inputs before they reach the `Number(...) || 0` path.
+const isValidAmount = (value: unknown) => {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  if (raw === '' || raw === null || raw === undefined) return false;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0;
+};
+
 const getStoredLastReceiptCurrency = () => {
   try {
     return localStorage.getItem(LAST_RECEIPT_CURRENCY_KEY);
@@ -355,6 +370,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategories, setFilterCategories] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const filterPopoverRef = useRef<HTMLDivElement>(null);
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const [announcement, setAnnouncement] = useState<string>('');
   const [showHeicHelper, setShowHeicHelper] = useState(false);
   const [lastWasHeic, setLastWasHeic] = useState(false);
@@ -391,6 +408,9 @@ export default function App() {
   const [reconvertBusy, setReconvertBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  // Reveal the "Resend confirmation email" affordance after a successful sign-up
+  // or when sign-in fails because the address is unconfirmed.
+  const [showResendConfirmation, setShowResendConfirmation] = useState(false);
   // PASSWORD_RECOVERY (Supabase) puts the app into a "set a new password" mode.
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState('');
@@ -893,11 +913,19 @@ export default function App() {
     setEditDraft(null);
   }, [editDraft]);
 
+  // Close the category filter popover and hand focus back to its trigger button.
+  const closeFilter = useCallback(() => {
+    setFilterOpen(false);
+    filterTriggerRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
-      if (editDraft) {
+      if (filterOpen) {
+        closeFilter();
+      } else if (editDraft) {
         closeEdit();
       } else if (showItemsModal) {
         setShowItemsModal(false);
@@ -907,7 +935,21 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editDraft, showHeicHelper, showItemsModal, closeEdit]);
+  }, [editDraft, showHeicHelper, showItemsModal, closeEdit, filterOpen, closeFilter]);
+
+  // Dismiss the filter popover on a pointerdown outside it (ignoring the trigger,
+  // whose own onClick toggles the state).
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (filterPopoverRef.current?.contains(target)) return;
+      if (filterTriggerRef.current?.contains(target)) return;
+      setFilterOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [filterOpen]);
 
   useEffect(() => {
     if (!editDraft && !result) return;
@@ -1012,6 +1054,7 @@ export default function App() {
 
     setAuthBusy(true);
     setAuthError(null);
+    setAuthNotice(null);
     try {
       const email = authEmail.trim();
       if (!email || !authPassword) {
@@ -1019,7 +1062,14 @@ export default function App() {
       }
       if (mode === 'sign-in') {
         const { error } = await client.auth.signInWithPassword({ email, password: authPassword });
-        if (error) throw error;
+        if (error) {
+          // Supabase reports an unconfirmed address here — offer a resend.
+          if (/email\s*not\s*confirmed/i.test(error.message || '')) {
+            setShowResendConfirmation(true);
+          }
+          throw error;
+        }
+        setShowResendConfirmation(false);
         setAnnouncement(`Signed in as ${email}`);
       } else {
         const { data, error } = await client.auth.signUp({
@@ -1043,6 +1093,8 @@ export default function App() {
           throw new Error('That email is already registered — sign in instead.');
         }
         setAnnouncement(`Account created for ${email}`);
+        setAuthNotice('Account created — check your email to confirm, then sign in.');
+        setShowResendConfirmation(true);
         setAuthMode('sign-in');
       }
       setAuthPassword('');
@@ -1074,6 +1126,7 @@ export default function App() {
     setCurrentFileName(null);
     setAuthName('');
     setAuthEmail('');
+    setShowResendConfirmation(false);
     setCustomCategories(loadCustomCategories());
   }, []);
 
@@ -1121,6 +1174,35 @@ export default function App() {
       setAuthNotice('Password reset link sent — check your email.');
     } catch (error) {
       setAuthError(getErrorMessage(error, 'Unable to send reset link.'));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const resendConfirmation = async () => {
+    const client = supabase;
+    if (!client) {
+      setAuthError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email sign-in.');
+      return;
+    }
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError('Enter your email first, then resend the confirmation link.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const { error } = await client.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: `${window.location.origin}/` },
+      });
+      if (error) throw error;
+      setAuthNotice('Confirmation email resent — check your inbox.');
+    } catch (error) {
+      setAuthError(getErrorMessage(error, 'Unable to resend confirmation email.'));
     } finally {
       setAuthBusy(false);
     }
@@ -1602,7 +1684,24 @@ export default function App() {
                           {result.image_path && (
                             <div className="mb-6 border border-[var(--color-paper-mist)] bg-[var(--color-warm-ash-cream)] flex items-center justify-center overflow-hidden" style={{ borderRadius: 'var(--radius-md)' }}>
                               {result.image_path.toLowerCase().endsWith('.pdf') ? (
-                                <embed src={getReceiptUrl(result.image_path)} type="application/pdf" className="w-full h-64" />
+                                <div className="w-full">
+                                  <embed
+                                    src={getReceiptUrl(result.image_path)}
+                                    type="application/pdf"
+                                    title={`PDF preview of ${currentFileName || 'receipt'}`}
+                                    className="w-full h-64"
+                                  />
+                                  <div className="px-3 py-2 border-t border-[var(--color-paper-mist)] text-center">
+                                    <a
+                                      href={getReceiptUrl(result.image_path)}
+                                      target="_blank"
+                                      rel="noopener"
+                                      className="btn-text btn-text--accent"
+                                    >
+                                      Open PDF ↗
+                                    </a>
+                                  </div>
+                                </div>
                               ) : (
                                 <a href={getReceiptUrl(result.image_path)} target="_blank" rel="noreferrer" className="block">
                                   <img src={getReceiptUrl(result.image_path)} alt={currentFileName || pendingFiles[0]?.name || 'Receipt'} loading="lazy" className="max-h-64 object-contain mx-auto" />
@@ -1624,10 +1723,10 @@ export default function App() {
                               <div>
                                 <label className="micro-label block mb-2">Date</label>
                                 <input
-                                  value={result.extracted_data.date || ''}
+                                  type="date"
+                                  value={toDateInputValue(result.extracted_data.date)}
                                   onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, date: e.target.value } })}
                                   className="input-editorial"
-                                  placeholder="YYYY-MM-DD"
                                 />
                               </div>
                             </div>
@@ -1638,11 +1737,17 @@ export default function App() {
                                 <input
                                   type="number"
                                   step="any"
+                                  min="0"
                                   inputMode="decimal"
                                   value={result.extracted_data.total_amount}
                                   onChange={(e) => setResult({ ...result, extracted_data: { ...result.extracted_data, total_amount: e.target.value as unknown as number } })}
                                   className="input-editorial"
                                 />
+                                {!isValidAmount(result.extracted_data.total_amount) && (
+                                  <p className="font-body text-xs text-[var(--color-accent)] mt-2">
+                                    Enter a total of 0 or more to save.
+                                  </p>
+                                )}
                                 <p className="font-body text-xs text-[var(--color-mid-ash)] mt-2">
                                   {result.extracted_data.currency || DEFAULT_CURRENCY}
                                   {result.extracted_data.source_currency && result.extracted_data.source_currency !== result.extracted_data.currency
@@ -1745,6 +1850,7 @@ export default function App() {
                                     <input
                                       type="number"
                                       step="any"
+                                      min="0"
                                       inputMode="decimal"
                                       className="input-editorial col-span-3"
                                       value={it.amount}
@@ -1778,7 +1884,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={saveExpense}
-                              disabled={isSaving}
+                              disabled={isSaving || !isValidAmount(result.extracted_data.total_amount)}
                               className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               <CheckCircle2 className="w-4 h-4" />
@@ -2365,6 +2471,16 @@ export default function App() {
                           {authNotice && (
                             <p className="font-body text-sm text-[var(--color-soft-charcoal)]">{authNotice}</p>
                           )}
+                          {showResendConfirmation && (
+                            <button
+                              type="button"
+                              onClick={resendConfirmation}
+                              disabled={authBusy}
+                              className="btn-text"
+                            >
+                              Resend confirmation email
+                            </button>
+                          )}
 
                           <div className="flex flex-wrap gap-3">
                             <button
@@ -2593,6 +2709,7 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                     <div className="relative">
                       <button
+                        ref={filterTriggerRef}
                         onClick={() => setFilterOpen(o => !o)}
                         aria-expanded={filterOpen}
                         aria-pressed={filterCategories.length > 0}
@@ -2603,6 +2720,7 @@ export default function App() {
                       </button>
                       {filterOpen && (
                         <div
+                          ref={filterPopoverRef}
                           className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-4 z-20"
                           style={{ borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-popover)' }}
                         >
@@ -2621,10 +2739,10 @@ export default function App() {
                             ))}
                           </div>
                           <div className="mt-4 flex justify-between items-center pt-3 border-t border-[var(--color-paper-mist)]">
-                            <button onClick={() => { clearFilters(); setFilterOpen(false); }} className="btn-text">
+                            <button onClick={() => { clearFilters(); closeFilter(); }} className="btn-text">
                               Clear
                             </button>
-                            <button onClick={() => setFilterOpen(false)} className="btn-primary btn--sm">
+                            <button onClick={closeFilter} className="btn-primary btn--sm">
                               Done
                             </button>
                           </div>
@@ -2837,7 +2955,24 @@ export default function App() {
                 {selectedExpense.image_path && (
                   <div className="mb-8 border border-[var(--color-paper-mist)] bg-[var(--color-warm-ash-cream)] flex items-center justify-center overflow-hidden" style={{ borderRadius: 'var(--radius-md)' }}>
                     {selectedExpense.image_path.toLowerCase().endsWith('.pdf') ? (
-                      <embed src={getReceiptUrl(selectedExpense.image_path)} type="application/pdf" className="w-full h-72" />
+                      <div className="w-full">
+                        <embed
+                          src={getReceiptUrl(selectedExpense.image_path)}
+                          type="application/pdf"
+                          title={`PDF receipt for ${selectedExpense.vendor || 'receipt'}`}
+                          className="w-full h-72"
+                        />
+                        <div className="px-3 py-2 border-t border-[var(--color-paper-mist)] text-center">
+                          <a
+                            href={getReceiptUrl(selectedExpense.image_path)}
+                            target="_blank"
+                            rel="noopener"
+                            className="btn-text btn-text--accent"
+                          >
+                            Open PDF ↗
+                          </a>
+                        </div>
+                      </div>
                     ) : (
                       <a href={getReceiptUrl(selectedExpense.image_path)} target="_blank" rel="noreferrer" className="block">
                         <img src={getReceiptUrl(selectedExpense.image_path)} alt={`Receipt for ${selectedExpense.vendor}`} loading="lazy" className="max-h-80 object-contain mx-auto" />
@@ -2948,19 +3083,25 @@ export default function App() {
                       <input
                         type="number"
                         step="any"
+                        min="0"
                         inputMode="decimal"
                         className="input-editorial"
                         value={editDraft.total_amount}
                         onChange={(e) => setEditDraft(d => d ? { ...d, total_amount: e.target.value as unknown as number } : d)}
                       />
+                      {!isValidAmount(editDraft.total_amount) && (
+                        <p className="font-body text-xs text-[var(--color-accent)] mt-2">
+                          Enter a total of 0 or more to save.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="micro-label block mb-2">Date</label>
                       <input
+                        type="date"
                         className="input-editorial"
-                        value={editDraft.date}
+                        value={toDateInputValue(editDraft.date)}
                         onChange={(e) => setEditDraft(d => d ? { ...d, date: e.target.value } : d)}
-                        placeholder="YYYY-MM-DD"
                       />
                     </div>
                   </div>
@@ -2983,14 +3124,25 @@ export default function App() {
 
                 <div className="mt-10 flex flex-col-reverse sm:flex-row justify-end gap-3">
                   <button onClick={closeEdit} className="btn-quiet btn--sm">Cancel</button>
-                  <button onClick={saveEdit} className="btn-primary btn--sm">Save changes</button>
+                  <button
+                    onClick={saveEdit}
+                    disabled={!isValidAmount(editDraft.total_amount)}
+                    className="btn-primary btn--sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Save changes
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
           {/* Toast stack — bottom-right, paper-white, hairline border, optional action */}
-          <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col gap-3 pointer-events-none">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="false"
+            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col gap-3 pointer-events-none"
+          >
             <AnimatePresence>
               {toasts.map(t => (
                 <motion.div
