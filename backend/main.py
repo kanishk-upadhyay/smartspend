@@ -1,4 +1,11 @@
 import os
+import sys
+
+# Ensure backend directory is on sys.path so sub-modules (deps, routers, database, schemas)
+# resolve cleanly whether executed as `uvicorn main:app` from backend/ or `uvicorn backend.main:app` from root.
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
 from dotenv import load_dotenv
 

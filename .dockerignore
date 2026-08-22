@@ -1,0 +1,16 @@
+.git
+.github
+.playwright-mcp
+.remember
+.claude
+frontend/node_modules
+frontend/dist
+backend/uploads
+backend/__pycache__
+backend/smartspend.db
+backend/test_smartspend.db
+*.pyc
+.pytest_cache
+.env
+.env.local
+learnings.md
