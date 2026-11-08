@@ -18,3 +18,6 @@ frontend/dist/
 
 # Playwright MCP scratch
 .playwright-mcp/
+
+# Local keep-alive logs
+scripts/*.log
