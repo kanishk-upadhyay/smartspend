@@ -8,6 +8,8 @@ from urllib.parse import quote, urlparse
 from typing import Optional
 
 import httpx
+import boto3
+from botocore.config import Config
 from fastapi import HTTPException, Request
 
 from database import SessionLocal, AccountSettings
@@ -33,6 +35,32 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 UPLOAD_DIR_ABS = os.path.abspath(UPLOAD_DIR)
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST_DIR = os.path.abspath(os.path.join(BACKEND_DIR, "..", "frontend", "dist"))
+
+# S3 / Neon Object Storage configuration
+S3_ENDPOINT_URL = (os.getenv("AWS_ENDPOINT_URL_S3") or "").rstrip("/")
+S3_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID") or ""
+S3_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY") or ""
+S3_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
+STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "receipts")
+
+_s3_client = None
+
+
+def get_s3_client():
+    global _s3_client
+    if not (S3_ENDPOINT_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY):
+        return None
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT_URL,
+            aws_access_key_id=S3_ACCESS_KEY_ID,
+            aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+            region_name=S3_REGION,
+            config=Config(s3={"addressing_style": "path"}),
+        )
+    return _s3_client
+
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or ""
 SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "receipts")
@@ -90,9 +118,13 @@ def _validate_image_path(image_path: str) -> None:
 
 
 def _normalize_image_path(stored: Optional[str]) -> Optional[str]:
-    """Strip Supabase URL wrappers, leaving a canonical bucket object path or local filename."""
+    """Strip storage URL wrappers, leaving a canonical bucket object path or local filename."""
     if not stored:
         return None
+    if S3_ENDPOINT_URL:
+        prefix = f"{S3_ENDPOINT_URL}/{STORAGE_BUCKET}/"
+        if stored.startswith(prefix):
+            return stored[len(prefix):]
     if SUPABASE_URL and stored.startswith(SUPABASE_URL + "/storage/v1/object/"):
         bare = stored.split("?", 1)[0]
         for prefix in (
@@ -153,9 +185,21 @@ def _displayable_image_path(stored: Optional[str]) -> Optional[str]:
     object_path = _normalize_image_path(stored)
     if not object_path:
         return None
+    if _is_remote_path(object_path):
+        return object_path
+
+    s3 = get_s3_client()
+    if s3:
+        # Since receipts bucket is public_read on Neon, we serve directly:
+        return f"{S3_ENDPOINT_URL}/{STORAGE_BUCKET}/{object_path}"
+
     if "/" not in object_path:
         return object_path
-    return _sign_supabase_object(object_path)
+
+    if SUPABASE_URL and SUPABASE_KEY:
+        return _sign_supabase_object(object_path)
+
+    return object_path
 
 
 def _attach_items(expense):
@@ -323,11 +367,36 @@ def _settings_payload(settings: AccountSettings) -> "AccountSettingsResponse":
     )
 
 
-def _upload_to_supabase(local_path: str, object_name: str, content_type: str) -> str:
+def _upload_to_storage(local_path: str, object_name: str, content_type: str) -> str:
+    s3 = get_s3_client()
+    if s3:
+        try:
+            with open(local_path, "rb") as payload:
+                s3.put_object(
+                    Bucket=STORAGE_BUCKET,
+                    Key=object_name,
+                    Body=payload,
+                    ContentType=content_type,
+                )
+            return object_name
+        except Exception as exc:
+            logger.exception("Failed to upload %s to Neon Object Storage", object_name)
+            raise HTTPException(
+                status_code=502,
+                detail="Could not upload file to object storage.",
+            ) from exc
+
+    if SUPABASE_URL and SUPABASE_KEY:
+        return _upload_to_supabase_direct(local_path, object_name, content_type)
+
+    return object_name
+
+
+def _upload_to_supabase_direct(local_path: str, object_name: str, content_type: str) -> str:
     if not (SUPABASE_URL and SUPABASE_KEY):
         raise HTTPException(
             status_code=500,
-            detail="Supabase storage is not configured. Set SUPABASE_URL and SUPABASE_KEY.",
+            detail="Storage is not configured. Set AWS S3 or Supabase credentials.",
         )
 
     target = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
@@ -359,7 +428,27 @@ def _upload_to_supabase(local_path: str, object_name: str, content_type: str) ->
     return object_name
 
 
-def _delete_supabase_object(image_path: str) -> None:
+_upload_to_supabase = _upload_to_storage
+
+
+def _delete_storage_object(image_path: str) -> None:
+    s3 = get_s3_client()
+    if s3:
+        object_name = _normalize_image_path(image_path)
+        if not object_name:
+            return
+        try:
+            s3.delete_object(Bucket=STORAGE_BUCKET, Key=object_name)
+            return
+        except Exception as exc:
+            logger.warning("Could not delete %s from object storage: %s", object_name, exc)
+            return
+
+    if SUPABASE_URL and SUPABASE_KEY:
+        _delete_supabase_object_direct(image_path)
+
+
+def _delete_supabase_object_direct(image_path: str) -> None:
     if not (SUPABASE_URL and SUPABASE_KEY):
         return
     object_name = _normalize_image_path(image_path)
@@ -384,3 +473,6 @@ def _delete_supabase_object(image_path: str) -> None:
             status_code=502,
             detail=f"Supabase delete failed ({response.status_code}): {response.text}",
         )
+
+
+_delete_supabase_object = _delete_storage_object

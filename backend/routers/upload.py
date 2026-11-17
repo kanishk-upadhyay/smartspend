@@ -17,9 +17,11 @@ from deps import (
     MAX_UPLOAD_BYTES,
     SUPABASE_URL,
     SUPABASE_KEY,
+    S3_ENDPOINT_URL,
+    S3_ACCESS_KEY_ID,
     _check_upload_rate,
     _safe_upload_path,
-    _upload_to_supabase,
+    _upload_to_storage,
     _displayable_image_path,
 )
 
@@ -79,11 +81,11 @@ async def upload_receipt(request: Request, payload: UploadRequest, db: Session =
         ) from exc
 
     image_path = saved_name
-    if SUPABASE_URL and SUPABASE_KEY:
+    if (S3_ENDPOINT_URL and S3_ACCESS_KEY_ID) or (SUPABASE_URL and SUPABASE_KEY):
         content_type = EXT_TO_MIME.get(ext, "application/octet-stream")
         object_name = f"receipts/{saved_name}"
         try:
-            image_path = _upload_to_supabase(file_path, object_name, content_type)
+            image_path = _upload_to_storage(file_path, object_name, content_type)
         finally:
             if os.path.isfile(file_path):
                 os.remove(file_path)

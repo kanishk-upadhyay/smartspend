@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/kanishk-upadhyay/smartspend/actions/workflows/ci.yml/badge.svg)](https://github.com/kanishk-upadhyay/smartspend/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Live demo](https://img.shields.io/badge/live-demo-3b82f6.svg)](https://smartspend--invincible01.replit.app/)
+[![Live demo](https://img.shields.io/badge/live-demo-3b82f6.svg)](https://smartspend-app.onrender.com)
 
 Every expense app I tried still made *me* do the data entry — so I built one where the
 model does it.
@@ -15,7 +15,7 @@ Extraction runs on a vision model (Google Gemini), with a second (Z.AI GLM-4.6V)
 automatic fallback — so scanning keeps working even when the primary model is rate-limited
 or down.
 
-**[▶ Try the live demo](https://smartspend--invincible01.replit.app/)** — no signup, guest mode is instant.
+**[▶ Try the live demo](https://smartspend-app.onrender.com)** — no signup, guest mode is instant.
 
 ![SmartSpend reading a rotated, handwritten shop bill into structured merchant, total, category, and line items](docs/scan.png)
 
@@ -62,14 +62,13 @@ view, chart, and receipt recomposed for either.
 
 - **Backend** — FastAPI, SQLAlchemy, PostgreSQL, Google Gemini and Z.AI SDKs
 - **Frontend** — React 19, TypeScript, Vite, Recharts, Framer Motion, Tailwind CSS
-- **Services** — Supabase for Postgres, authentication, and file storage
+- **Services** — Neon for Serverless PostgreSQL and Object Storage, Render for Docker container hosting
 
 ## Architecture
 
 The backend is a FastAPI service handling OCR, expense CRUD, and analytics. Receipt
-images are stored in Supabase Storage and served via signed URLs; expense metadata
-lives in Postgres. Requests are authenticated with Supabase-issued JWTs. The frontend
-is a single-page React app built with Vite and served by the backend.
+images are stored in Neon Object Storage (S3-compatible); expense metadata
+lives in Neon Postgres. The frontend is a single-page React app built with Vite and served by the backend.
 
 ```
 frontend/                 React + Vite single-page app

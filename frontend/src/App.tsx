@@ -1528,7 +1528,7 @@ export default function App() {
                   <p className="micro-label mb-4">Account · Access & preferences</p>
                   <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 7vw, 4.5rem)' }}>Your space.</h1>
                   <p className="title-italic mt-4 text-[var(--color-soft-charcoal)]" style={{ fontSize: 'clamp(1.125rem, 2.5vw, 1.5rem)' }}>
-                    {isSignedIn ? 'Manage your signed-in session, theme, and categories.' : 'Use guest mode or sign in with Supabase Auth.'}
+                    {isSignedIn ? 'Manage your signed-in session, theme, and categories.' : 'Use instant guest mode or manage your settings.'}
                   </p>
                 </header>
 

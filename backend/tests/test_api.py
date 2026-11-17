@@ -373,6 +373,25 @@ class TestUpload:
         assert kwargs.get("base_currency") == "USD"
         assert r.json()["extracted_data"]["currency"] == "USD"
 
+    def test_upload_with_s3_storage(self, client, monkeypatch):
+        """When S3 is configured, upload calls s3.put_object and returns S3 URL."""
+        mock_s3 = MagicMock()
+        monkeypatch.setattr("deps.get_s3_client", lambda: mock_s3)
+        monkeypatch.setattr("deps.S3_ENDPOINT_URL", "https://s3.example.com")
+        monkeypatch.setattr("deps.STORAGE_BUCKET", "receipts")
+        monkeypatch.setattr("routers.upload.S3_ENDPOINT_URL", "https://s3.example.com")
+        monkeypatch.setattr("routers.upload.S3_ACCESS_KEY_ID", "test-key")
+
+        r = client.post("/upload", headers=GUEST_HEADERS, json={
+            "filename": "s3_test.png", "data_base64": TINY_PNG_B64
+        })
+        assert r.status_code == 200
+        assert mock_s3.put_object.called
+        call_kwargs = mock_s3.put_object.call_args[1]
+        assert call_kwargs["Bucket"] == "receipts"
+        assert call_kwargs["Key"].startswith("receipts/")
+        assert "https://s3.example.com/receipts/" in r.json()["image_path"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Account settings
