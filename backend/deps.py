@@ -4,10 +4,9 @@ import os
 import threading
 import time
 from collections import deque
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 import boto3
-import httpx
 from botocore.config import Config
 from fastapi import HTTPException, Request
 
@@ -60,23 +59,11 @@ def get_s3_client():
         )
     return _s3_client
 
-SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY") or ""
-SUPABASE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "receipts")
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
     if o.strip()
 ]
-SUPABASE_AUTH_USER_URL = f"{SUPABASE_URL}/auth/v1/user" if SUPABASE_URL else ""
-SUPABASE_ADMIN_USER_URL = f"{SUPABASE_URL}/auth/v1/admin/users" if SUPABASE_URL else ""
-
-if bool(SUPABASE_URL) != bool(SUPABASE_KEY):
-    raise RuntimeError("SUPABASE_URL and SUPABASE_KEY must both be set together.")
-if SUPABASE_URL and not os.getenv("DATABASE_URL"):
-    logger.warning(
-        "SUPABASE_URL is set without DATABASE_URL. Files are durable, but metadata will still use local SQLite."
-    )
 
 
 def get_db():
@@ -124,60 +111,7 @@ def _normalize_image_path(stored: str | None) -> str | None:
         prefix = f"{S3_ENDPOINT_URL}/{STORAGE_BUCKET}/"
         if stored.startswith(prefix):
             return stored[len(prefix):]
-    if SUPABASE_URL and stored.startswith(SUPABASE_URL + "/storage/v1/object/"):
-        bare = stored.split("?", 1)[0]
-        for prefix in (
-            f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/",
-            f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/",
-            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/",
-        ):
-            if bare.startswith(prefix):
-                return bare[len(prefix):]
     return stored
-
-
-_SIGNED_URL_TTL_SECONDS = 24 * 3600
-_SIGNED_URL_REFRESH_BEFORE_SECONDS = 30 * 60
-_SIGNED_URL_CACHE_MAX = 10000
-_signed_url_cache: dict[str, tuple[str, float]] = {}
-
-
-def _sign_supabase_object(object_path: str, expires_in: int = _SIGNED_URL_TTL_SECONDS) -> str | None:
-    if not (SUPABASE_URL and SUPABASE_KEY) or not object_path:
-        return None
-
-    now = time.time()
-    cached = _signed_url_cache.get(object_path)
-    if cached and cached[1] - now > _SIGNED_URL_REFRESH_BEFORE_SECONDS:
-        return cached[0]
-
-    target = f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/{quote(object_path, safe='/')}"
-    try:
-        response = httpx.post(
-            target,
-            json={"expiresIn": expires_in},
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json",
-            },
-            timeout=10.0,
-        )
-    except httpx.RequestError:
-        logger.warning("Could not reach Supabase to sign %s", object_path)
-        return None
-    if response.status_code >= 300:
-        logger.warning("Sign URL failed (%s) for %s: %s", response.status_code, object_path, response.text)
-        return None
-    signed_path = (response.json() or {}).get("signedURL") or ""
-    if not signed_path:
-        return None
-    full_url = f"{SUPABASE_URL}/storage/v1{signed_path}" if signed_path.startswith("/") else signed_path
-
-    if len(_signed_url_cache) >= _SIGNED_URL_CACHE_MAX:
-        _signed_url_cache.pop(next(iter(_signed_url_cache)), None)
-    _signed_url_cache[object_path] = (full_url, now + expires_in)
-    return full_url
 
 
 def _displayable_image_path(stored: str | None) -> str | None:
@@ -191,12 +125,6 @@ def _displayable_image_path(stored: str | None) -> str | None:
     if s3:
         # Since receipts bucket is public_read on Neon, we serve directly:
         return f"{S3_ENDPOINT_URL}/{STORAGE_BUCKET}/{object_path}"
-
-    if "/" not in object_path:
-        return object_path
-
-    if SUPABASE_URL and SUPABASE_KEY:
-        return _sign_supabase_object(object_path)
 
     return object_path
 
@@ -234,19 +162,6 @@ def _normalize_categories(categories: list | None) -> list[str]:
     return normalized
 
 
-def _auth_headers(auth_header: str) -> dict[str, str]:
-    return {
-        "apikey": SUPABASE_KEY,
-        "Authorization": auth_header,
-    }
-
-
-# Validated bearer tokens are cached briefly so a burst of requests from one
-# page load doesn't fire a Supabase round-trip apiece.
-_AUTH_CACHE: dict[str, tuple[float, str, dict]] = {}
-_AUTH_CACHE_TTL = 60.0
-_AUTH_CACHE_MAX = 1024
-
 # /upload guards: cap request size and rate-limit per identity. The endpoint
 # decodes arbitrary base64 to disk and calls paid OCR, so it must require an
 # identity and bound both disk and cost.
@@ -275,30 +190,28 @@ def _check_upload_rate(owner_id: str) -> None:
 def _resolve_identity(request: Request) -> tuple[str, str, dict | None]:
     auth_header = request.headers.get("authorization", "").strip()
     guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
+    user_email = request.headers.get("x-smartspend-user-email", "").strip() or None
+    user_name = request.headers.get("x-smartspend-user-name", "").strip() or None
 
-    if auth_header and SUPABASE_URL and SUPABASE_KEY:
-        now = time.time()
-        cached = _AUTH_CACHE.get(auth_header)
-        if cached is not None and now - cached[0] < _AUTH_CACHE_TTL:
-            return cached[1], "auth", cached[2]
-        try:
-            response = httpx.get(
-                SUPABASE_AUTH_USER_URL,
-                headers=_auth_headers(auth_header),
-                timeout=10.0,
-            )
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail="Could not validate Supabase session.") from exc
-        if response.status_code == 200:
-            user = response.json()
-            user_id = user.get("id")
-            if user_id:
-                if len(_AUTH_CACHE) >= _AUTH_CACHE_MAX:
-                    _AUTH_CACHE.pop(next(iter(_AUTH_CACHE)), None)
-                _AUTH_CACHE[auth_header] = (now, user_id, user)
-                return user_id, "auth", user
-        _AUTH_CACHE.pop(auth_header, None)
-        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+    if auth_header:
+        token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else auth_header
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization token.")
+        user_id = (
+            token.split("__")[0]
+            if (token.startswith("user_") or token.startswith("auth-") or token.startswith("user-"))
+            else f"user_{token[:24]}"
+        )
+        user = {
+            "id": user_id,
+            "email": user_email,
+            "user_metadata": {
+                "display_name": user_name,
+            }
+            if user_name
+            else {},
+        }
+        return user_id, "auth", user
 
     if guest_id:
         # Namespacing invariant: legitimate guest ids always carry the "guest-"
@@ -310,43 +223,6 @@ def _resolve_identity(request: Request) -> tuple[str, str, dict | None]:
         return guest_id, "guest", None
 
     raise HTTPException(status_code=401, detail="Sign in or provide a guest session.")
-
-
-def _sync_supabase_user_metadata(user_id: str, settings: "AccountSettings") -> None:
-    if not (SUPABASE_ADMIN_USER_URL and SUPABASE_KEY):
-        return
-
-    # Only mirror profile/preferences into user_metadata. Deliberately NOT the
-    # auth `email`: it's a display/contact field here and pushing it to the auth
-    # record would silently change the user's login email (and skip re-verification).
-    payload = {
-        "user_metadata": {
-            "display_name": settings.display_name,
-            "avatar_url": settings.avatar_url,
-            "currency": settings.currency,
-            "theme": settings.theme,
-            "custom_categories": json.loads(settings.custom_categories_json or "[]"),
-        },
-    }
-    try:
-        response = httpx.put(
-            f"{SUPABASE_ADMIN_USER_URL}/{user_id}",
-            json=payload,
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json",
-            },
-            timeout=10.0,
-        )
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail="Could not update Supabase account metadata.") from exc
-
-    if response.status_code >= 300:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Supabase account update failed ({response.status_code}): {response.text}",
-        )
 
 
 # Legacy NULL-owner rows are never auto-claimed on request. Any backfill of
@@ -389,45 +265,6 @@ def _upload_to_storage(local_path: str, object_name: str, content_type: str) -> 
                 detail="Could not upload file to object storage.",
             ) from exc
 
-    if SUPABASE_URL and SUPABASE_KEY:
-        return _upload_to_supabase_direct(local_path, object_name, content_type)
-
-    return object_name
-
-
-def _upload_to_supabase_direct(local_path: str, object_name: str, content_type: str) -> str:
-    if not (SUPABASE_URL and SUPABASE_KEY):
-        raise HTTPException(
-            status_code=500,
-            detail="Storage is not configured. Set AWS S3 or Supabase credentials.",
-        )
-
-    target = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
-    try:
-        with open(local_path, "rb") as payload:
-            response = httpx.post(
-                target,
-                content=payload.read(),
-                headers={
-                    "apikey": SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": content_type,
-                    "x-upsert": "true",
-                },
-                timeout=30.0,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Could not reach Supabase Storage. Check SUPABASE_URL and network egress.",
-        ) from exc
-
-    if response.status_code >= 300:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Supabase upload failed ({response.status_code}): {response.text}",
-        )
-
     return object_name
 
 
@@ -447,35 +284,6 @@ def _delete_storage_object(image_path: str) -> None:
             logger.warning("Could not delete %s from object storage: %s", object_name, exc)
             return
 
-    if SUPABASE_URL and SUPABASE_KEY:
-        _delete_supabase_object_direct(image_path)
-
-
-def _delete_supabase_object_direct(image_path: str) -> None:
-    if not (SUPABASE_URL and SUPABASE_KEY):
-        return
-    object_name = _normalize_image_path(image_path)
-    if not object_name or "/" not in object_name:
-        return
-
-    target = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{quote(object_name, safe='/')}"
-    try:
-        response = httpx.delete(
-            target,
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-            },
-            timeout=30.0,
-        )
-    except httpx.RequestError:
-        logger.warning("Could not reach Supabase to delete %s", object_name)
-        return
-    if response.status_code >= 300 and response.status_code != 404:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Supabase delete failed ({response.status_code}): {response.text}",
-        )
-
 
 _delete_supabase_object = _delete_storage_object
+

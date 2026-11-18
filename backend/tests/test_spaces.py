@@ -263,7 +263,7 @@ class TestSafeDeletionAndReferenceCounting:
         """When two expense rows point to the same image, deleting one must NOT delete the S3 object."""
         mock_delete_s3 = MagicMock()
         monkeypatch.setattr("deps._delete_storage_object", mock_delete_s3)
-        monkeypatch.setattr("routers.expenses._delete_supabase_object", mock_delete_s3)
+        monkeypatch.setattr("routers.expenses._delete_storage_object", mock_delete_s3)
 
         image_key = "receipts/shared_bill_abc.png"
 

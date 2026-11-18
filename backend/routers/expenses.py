@@ -11,7 +11,7 @@ from database import AccountSettings, Expense
 from deps import (
     _attach_items,
     _check_upload_rate,
-    _delete_supabase_object,
+    _delete_storage_object,
     _normalize_image_path,
     _safe_upload_path,
     _validate_image_path,
@@ -105,7 +105,7 @@ def delete_expense(expense_id: int, request: Request, db: Session = Depends(get_
         shared_count = db.query(Expense).filter(Expense.image_path == canonical, Expense.id != expense_id).count()
         if shared_count == 0:
             if canonical and "/" in canonical:
-                _delete_supabase_object(image_path)
+                _delete_storage_object(image_path)
             elif canonical:
                 try:
                     full_path = _safe_upload_path(canonical)

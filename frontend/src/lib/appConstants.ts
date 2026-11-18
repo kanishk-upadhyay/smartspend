@@ -6,6 +6,18 @@ export const API_URL = (
 export const getReceiptUrl = (imagePath: string) =>
   /^https?:\/\//i.test(imagePath) ? imagePath : `${API_URL}/uploads/${imagePath}`;
 
+export interface UserSession {
+  access_token?: string;
+  user: {
+    id: string;
+    email?: string;
+    user_metadata?: {
+      display_name?: string;
+      avatar_url?: string;
+    };
+  };
+}
+
 export interface Expense {
   id: number;
   vendor: string;

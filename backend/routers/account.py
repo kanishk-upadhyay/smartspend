@@ -9,7 +9,6 @@ from deps import (
     _normalize_categories,
     _normalize_theme,
     _settings_payload,
-    _sync_supabase_user_metadata,
     get_db,
 )
 from schemas import AccountSettingsResponse, AccountSettingsUpdate
@@ -64,8 +63,6 @@ def update_account_settings(request: Request, payload: AccountSettingsUpdate, db
 
     db.commit()
     db.refresh(settings)
-    if identity_type == "auth":
-        _sync_supabase_user_metadata(owner_id, settings)
     return _settings_payload(settings)
 
 
@@ -87,21 +84,15 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
     account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
-    migrated = db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
-    migrated_spaces = db.query(Space).filter(Space.created_by == guest_id).update({"created_by": owner_id})
-    migrated_members = db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).update({"member_id": owner_id})
-
-    # The frontend POSTs this on every settings load, so on the common no-op
-    # path (no guest rows, no guest settings) nothing actually changes and we
-    # must skip the wasteful Supabase admin write below.
-    changed = bool(migrated or migrated_spaces or migrated_members)
+    db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+    db.query(Space).filter(Space.created_by == guest_id).update({"created_by": owner_id})
+    db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).update({"member_id": owner_id})
 
     if account_settings is None:
         account_settings = AccountSettings(owner_id=owner_id)
         db.add(account_settings)
 
     if guest_settings is not None:
-        changed = True
         if not account_settings.display_name:
             account_settings.display_name = guest_settings.display_name
         if not account_settings.email:
@@ -118,6 +109,4 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(account_settings)
-    if changed:
-        _sync_supabase_user_metadata(owner_id, account_settings)
     return _settings_payload(account_settings)

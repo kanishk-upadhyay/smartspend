@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import type { UserSession } from '../lib/appConstants';
 import { getStoredThemePreference } from '../lib/theme';
 import type { ThemePreference } from '../lib/theme';
 import {
@@ -19,7 +18,7 @@ import type { Toast } from './useToasts';
 
 interface UseAccountSettingsParams {
   requestConfig: AxiosRequestConfig;
-  session: Session | null;
+  session: UserSession | null;
   authReady: boolean;
   isGuestSession: boolean;
   themePreference: ThemePreference;
@@ -145,20 +144,6 @@ export function useAccountSettings({
         custom_categories: customCategories,
       };
       await axios.put(`${API_URL}/account-settings`, payload, requestConfig);
-      const client = supabase;
-      if (session?.user && client) {
-        const metadata = {
-          display_name: payload.display_name || '',
-          avatar_url: payload.avatar_url || '',
-          currency: payload.currency || DEFAULT_CURRENCY,
-          theme: payload.theme || 'system',
-          custom_categories: payload.custom_categories || [],
-        };
-        await client.auth.updateUser({
-          ...(payload.email && payload.email !== session.user.email ? { email: payload.email } : {}),
-          data: metadata,
-        });
-      }
       setAnnouncement('Account settings saved');
       pushToast({ message: 'Account settings saved.', tone: 'accent' });
       if (payload.email) setAuthEmail(payload.email);

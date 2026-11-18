@@ -13,7 +13,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.119.0",
     "@tanstack/react-virtual": "^3.14.26",
     "axios": "^1.21.1",
     "framer-motion": "^12.43.0",

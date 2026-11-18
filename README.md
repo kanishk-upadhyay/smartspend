@@ -91,7 +91,7 @@ pip install -r requirements.txt
 
 export GEMINI_API_KEY=your-key        # ZAI_API_KEY is optional (fallback OCR)
 export DATABASE_URL=postgresql+psycopg://...   # omit to use a local SQLite file
-export SUPABASE_URL=... SUPABASE_KEY=...        # for image storage + auth
+export AWS_ENDPOINT_URL_S3=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... # for Neon Object Storage
 
 uvicorn main:app --reload
 ```
@@ -101,10 +101,6 @@ uvicorn main:app --reload
 ```bash
 cd frontend
 npm install
-cat > .env.local <<EOF
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-EOF
 npm run dev
 ```
 
@@ -124,16 +120,14 @@ A few decisions I made while building this, and why:
   trusting the model blindly.
 - **Provider-agnostic database URL.** The app normalizes any `postgres://` /
   `postgresql://` URL to the `postgresql+psycopg://` (psycopg 3) driver and falls
-  back to SQLite when unset — so the same code runs on Supabase in production and on
+  back to SQLite when unset — so the same code runs on Neon Postgres in production and on
   a laptop with zero setup.
-- **Session pooler over transaction pooler.** Supabase's transaction pooler breaks
-  SQLAlchemy's prepared statements; the app connects through the session pooler
-  (port 5432) with `pool_pre_ping` + `pool_recycle` to survive dropped idle SSL
-  connections.
-- **Identity & data isolation.** Signed-in users are scoped by their Supabase JWT;
-  guest sessions get a namespaced id that can't address another account's data. Every
-  query is owner-scoped, receipt images are served via short-lived signed URLs (not
-  public links), and the public OCR upload endpoint is size-capped and rate-limited.
+- **Resilient connection pooling.** Connects to Postgres with `pool_pre_ping` +
+  `pool_recycle` to survive dropped idle SSL connections without crashing requests.
+- **Identity & data isolation.** Users can sign in or use guest sessions with a
+  namespaced id that can't address another account's data. Every query is owner-scoped,
+  receipt images are stored in isolated object storage, and the public OCR upload
+  endpoint is size-capped and rate-limited.
 - **Tested and CI-gated.** The backend ships with a pytest suite and the frontend is
   linted and type-checked; both run on every push (see the CI badge above).
 

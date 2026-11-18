@@ -16,7 +16,7 @@ engine_kwargs: dict = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
-    # Reconnect transparently when Supabase/Postgres drops idle SSL connections.
+    # Reconnect transparently when Neon/Postgres drops idle SSL connections.
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_recycle"] = 300
 
