@@ -77,7 +77,7 @@ class GeminiExtractor:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set")
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
         self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
         self.max_retries = int(os.environ.get("GEMINI_MAX_RETRIES", "2"))
         self.retry_backoff_seconds = float(os.environ.get("GEMINI_RETRY_BACKOFF_SECONDS", "1.5"))
