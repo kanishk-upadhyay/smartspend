@@ -31,6 +31,8 @@
   --color-error-bg:  oklch(95% 0.08 10);
   --color-warning:   oklch(58% 0.23 55);
   --color-warning-bg: oklch(95% 0.1 55);
+  --color-success:   oklch(58% 0.19 145);
+  --color-success-bg: oklch(95% 0.08 145);
 
   /* ── Typography families ── */
   --font-display: 'Cormorant Garamond', Georgia, serif;
@@ -99,6 +101,8 @@ html[data-theme="dark"] {
   --color-error-bg:       oklch(26% 0.10 20);
   --color-warning:        oklch(78% 0.16 70);        /* Warning: amber */
   --color-warning-bg:     oklch(26% 0.09 70);
+  --color-success:        oklch(72% 0.18 145);       /* Success: calm sage */
+  --color-success-bg:     oklch(24% 0.08 145);
 
   /* ── Legacy token overrides (for backward compatibility) ── */
   --color-warm-ash-cream:     oklch(14% 0.012 350);      /* bg equivalent */

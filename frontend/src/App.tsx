@@ -1186,7 +1186,7 @@ export default function App() {
                             </div>
 
                             {spaces.length > 0 && (
-                              <div className="p-3 border border-[var(--color-paper-mist)] bg-[var(--color-bg)] rounded-md space-y-2">
+                              <div className="p-3.5 border border-[var(--color-paper-mist)] bg-[var(--color-bg)] space-y-2.5" style={{ borderRadius: 'var(--radius-md)' }}>
                                 <div className="flex items-center justify-between">
                                   <label className="micro-label">Destination</label>
                                   {selectedDestinationSpaceId && (
@@ -1203,9 +1203,9 @@ export default function App() {
                                         setSelectedDestinationSpaceId(val);
                                       }}
                                     >
-                                      <option value="">👤 Personal</option>
+                                      <option value="">Personal Ledger</option>
                                       {spaces.map((sp) => (
-                                        <option key={sp.id} value={sp.id}>👥 {sp.name}</option>
+                                        <option key={sp.id} value={sp.id}>Shared Circle · {sp.name}</option>
                                       ))}
                                     </select>
                                     <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-mid-ash)] pointer-events-none" />
@@ -2263,7 +2263,10 @@ export default function App() {
                     <header className="mb-10">
                       <div className="flex items-center gap-3 mb-2">
                         <span className="micro-label">Shared Circle</span>
-                        <span className="font-mono text-xs px-2 py-0.5 border border-[var(--color-paper-mist)] rounded text-[var(--color-mid-ash)]">
+                        <span
+                          className="font-mono text-xs px-2 py-0.5 border border-[var(--color-paper-mist)] text-[var(--color-mid-ash)]"
+                          style={{ borderRadius: 'var(--radius-sm)' }}
+                        >
                           {activeSpaceData.space.base_currency}
                         </span>
                       </div>
@@ -2324,17 +2327,17 @@ export default function App() {
                                 </div>
                                 <div className="font-body text-sm font-semibold">
                                   {isPositive && (
-                                    <span className="text-emerald-600 dark:text-emerald-400">
-                                      + {formatMoney(b.net_balance, activeSpaceData.space.base_currency)} (gets back)
+                                    <span className="text-[var(--color-success)] font-mono">
+                                      + {formatMoney(b.net_balance, activeSpaceData.space.base_currency)} <span className="font-body text-xs font-normal opacity-90">(gets back)</span>
                                     </span>
                                   )}
                                   {isNegative && (
-                                    <span className="text-rose-600 dark:text-rose-400">
-                                      - {formatMoney(Math.abs(b.net_balance), activeSpaceData.space.base_currency)} (owes)
+                                    <span className="text-[var(--color-error)] font-mono">
+                                      - {formatMoney(Math.abs(b.net_balance), activeSpaceData.space.base_currency)} <span className="font-body text-xs font-normal opacity-90">(owes)</span>
                                     </span>
                                   )}
                                   {!isPositive && !isNegative && (
-                                    <span className="text-[var(--color-mid-ash)]">Settled ($0.00)</span>
+                                    <span className="text-[var(--color-mid-ash)] font-mono">Settled ({formatMoney(0, activeSpaceData.space.base_currency)})</span>
                                   )}
                                 </div>
                               </div>
@@ -2379,14 +2382,18 @@ export default function App() {
                                   <img
                                     src={getReceiptUrl(exp.image_path)}
                                     alt=""
-                                    className="w-12 h-12 object-cover rounded border border-[var(--color-paper-mist)] flex-shrink-0 cursor-pointer"
+                                    className="w-12 h-12 object-cover border border-[var(--color-paper-mist)] flex-shrink-0 cursor-pointer"
+                                    style={{ borderRadius: 'var(--radius-sm)' }}
                                     onClick={() => {
                                       setSelectedExpense(exp);
                                       setShowItemsModal(true);
                                     }}
                                   />
                                 ) : (
-                                  <div className="w-12 h-12 rounded border border-[var(--color-paper-mist)] bg-[var(--color-bg)] flex items-center justify-center text-[var(--color-mid-ash)] flex-shrink-0">
+                                  <div
+                                    className="w-12 h-12 border border-[var(--color-paper-mist)] bg-[var(--color-bg)] flex items-center justify-center text-[var(--color-mid-ash)] flex-shrink-0"
+                                    style={{ borderRadius: 'var(--radius-sm)' }}
+                                  >
                                     🧾
                                   </div>
                                 )}
@@ -2397,7 +2404,12 @@ export default function App() {
                                   <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-mid-ash)] mt-1">
                                     <span>{formatDate(exp.date)}</span>
                                     <span>·</span>
-                                    <span className="px-1.5 py-0.5 border border-[var(--color-paper-mist)] rounded">{exp.category}</span>
+                                    <span
+                                      className="px-1.5 py-0.5 border border-[var(--color-paper-mist)] text-[var(--color-soft-charcoal)]"
+                                      style={{ borderRadius: 'var(--radius-sm)' }}
+                                    >
+                                      {exp.category}
+                                    </span>
                                     <span>·</span>
                                     <span className="text-[var(--color-accent)] font-medium">
                                       Paid by {exp.payer_name || 'Member'}
@@ -2495,7 +2507,7 @@ export default function App() {
                             key={sp.id}
                             onClick={() => setActiveSpaceId(sp.id)}
                             className="group border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 hover:border-[var(--color-accent)] transition-all cursor-pointer flex flex-col justify-between"
-                            style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
+                            style={{ borderRadius: 'var(--radius-lg)' }}
                           >
                             <div>
                               <div className="flex items-center justify-between mb-3">
@@ -2505,7 +2517,8 @@ export default function App() {
                                     e.stopPropagation();
                                     copyJoinCode(sp.join_code);
                                   }}
-                                  className="text-xs font-mono px-2 py-0.5 border border-[var(--color-paper-mist)] rounded text-[var(--color-mid-ash)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors flex items-center gap-1"
+                                  className="text-xs font-mono px-2 py-0.5 border border-[var(--color-paper-mist)] text-[var(--color-mid-ash)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors flex items-center gap-1"
+                                  style={{ borderRadius: 'var(--radius-sm)' }}
                                   title="Copy join code"
                                 >
                                   <span>{sp.join_code}</span>
