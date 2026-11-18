@@ -1,30 +1,29 @@
-import os
 import json
+import os
 from datetime import datetime
-from typing import List, Optional
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from database import Expense, AccountSettings
-from schemas import ExpenseBase, ExpenseResponse, ExpenseUpdate
 import deps
+from database import AccountSettings, Expense
 from deps import (
-    get_db,
     _attach_items,
-    _normalize_image_path,
-    _validate_image_path,
-    _safe_upload_path,
-    _delete_supabase_object,
     _check_upload_rate,
+    _delete_supabase_object,
+    _normalize_image_path,
+    _safe_upload_path,
+    _validate_image_path,
+    get_db,
 )
+from schemas import ExpenseBase, ExpenseResponse, ExpenseUpdate
 
 router = APIRouter()
 
 
-@router.get("/expenses", response_model=List[ExpenseResponse])
-def list_expenses(request: Request, scope: Optional[str] = None, db: Session = Depends(get_db)):
+@router.get("/expenses", response_model=list[ExpenseResponse])
+def list_expenses(request: Request, scope: str | None = None, db: Session = Depends(get_db)):
     owner_id, _, _ = deps._resolve_identity(request)
     query = db.query(Expense).filter(Expense.owner_id == owner_id)
     if scope == "personal":
@@ -76,7 +75,7 @@ def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate, db
         raise HTTPException(status_code=404, detail="Expense not found")
 
     update_data = expense.model_dump(exclude_unset=True, exclude={"items", "split_data"})
-    if "image_path" in update_data and update_data["image_path"]:
+    if update_data.get("image_path"):
         update_data["image_path"] = _normalize_image_path(update_data["image_path"])
         _validate_image_path(update_data["image_path"])
     if "split_data" in expense.model_fields_set and expense.split_data is not None:

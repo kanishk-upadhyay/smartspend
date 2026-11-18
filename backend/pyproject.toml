@@ -1,0 +1,34 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "B008",  # Do not perform function call `Depends` in argument defaults (standard FastAPI)
+    "E501",  # Line length
+    "UP007", # Optional[X] vs X | None
+    "UP045",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["E402"]
+"tests/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "database",
+    "deps",
+    "schemas",
+    "gemini_extractor",
+    "zai_extractor",
+    "ocr_utils",
+    "historical_fx",
+]

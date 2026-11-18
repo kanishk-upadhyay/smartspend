@@ -1,4 +1,3 @@
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -11,56 +10,56 @@ class ExpenseBase(BaseModel):
     category: str = "General"
     currency: str = "INR"
     source_currency: str = "INR"
-    raw_total_amount: Optional[float] = None
-    receipt_date: Optional[str] = None
-    fx_rate_date: Optional[str] = None
-    currency_warning: Optional[str] = None
-    item_warning: Optional[str] = None
-    items: Optional[list] = None
-    image_path: Optional[str] = None
-    space_id: Optional[int] = None
-    payer_name: Optional[str] = None
-    split_type: Optional[str] = "equal"
-    split_data: Optional[dict] = None
+    raw_total_amount: float | None = None
+    receipt_date: str | None = None
+    fx_rate_date: str | None = None
+    currency_warning: str | None = None
+    item_warning: str | None = None
+    items: list | None = None
+    image_path: str | None = None
+    space_id: int | None = None
+    payer_name: str | None = None
+    split_type: str | None = "equal"
+    split_data: dict | None = None
 
 class ExpenseResponse(ExpenseBase):
     id: int
-    owner_id: Optional[str] = None
+    owner_id: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class ExpenseUpdate(BaseModel):
-    vendor: Optional[str] = None
-    total_amount: Optional[float] = None
-    date: Optional[str] = None
-    category: Optional[str] = None
-    currency: Optional[str] = None
-    source_currency: Optional[str] = None
-    raw_total_amount: Optional[float] = None
-    receipt_date: Optional[str] = None
-    fx_rate_date: Optional[str] = None
-    currency_warning: Optional[str] = None
-    item_warning: Optional[str] = None
-    items: Optional[list] = None
-    image_path: Optional[str] = None
-    space_id: Optional[int] = None
-    payer_name: Optional[str] = None
-    split_type: Optional[str] = None
-    split_data: Optional[dict] = None
+    vendor: str | None = None
+    total_amount: float | None = None
+    date: str | None = None
+    category: str | None = None
+    currency: str | None = None
+    source_currency: str | None = None
+    raw_total_amount: float | None = None
+    receipt_date: str | None = None
+    fx_rate_date: str | None = None
+    currency_warning: str | None = None
+    item_warning: str | None = None
+    items: list | None = None
+    image_path: str | None = None
+    space_id: int | None = None
+    payer_name: str | None = None
+    split_type: str | None = None
+    split_data: dict | None = None
 
 
 class UploadRequest(BaseModel):
     filename: str
-    content_type: Optional[str] = None
+    content_type: str | None = None
     data_base64: str
 
 
 class AccountSettingsBase(BaseModel):
-    display_name: Optional[str] = None
-    email: Optional[str] = None
-    avatar_url: Optional[str] = None
+    display_name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
     currency: str = "INR"
     theme: str = "system"
-    custom_categories: Optional[list[str]] = None
+    custom_categories: list[str] | None = None
 
 
 class AccountSettingsResponse(AccountSettingsBase):
@@ -70,12 +69,12 @@ class AccountSettingsResponse(AccountSettingsBase):
 
 
 class AccountSettingsUpdate(BaseModel):
-    display_name: Optional[str] = None
-    email: Optional[str] = None
-    avatar_url: Optional[str] = None
-    currency: Optional[str] = None
-    theme: Optional[str] = None
-    custom_categories: Optional[list[str]] = None
+    display_name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+    currency: str | None = None
+    theme: str | None = None
+    custom_categories: list[str] | None = None
 
 
 # Space / Shared Circles Models
@@ -88,7 +87,7 @@ class SpaceMemberResponse(BaseModel):
     member_id: str
     display_name: str
     role: str
-    joined_at: Optional[str] = None
+    joined_at: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -101,13 +100,13 @@ class SpaceResponse(BaseModel):
     created_by: str
     member_count: int = 1
     total_spend: float = 0.0
-    members: Optional[list[SpaceMemberResponse]] = None
+    members: list[SpaceMemberResponse] | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class SpaceJoinRequest(BaseModel):
     code_or_slug: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
 
 
 class SpaceBalanceItem(BaseModel):

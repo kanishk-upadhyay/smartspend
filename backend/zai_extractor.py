@@ -133,7 +133,7 @@ class ZaiExtractor:
                 # Schema / parse errors — retry won't help if it's structural,
                 # but occasionally a transient model glitch causes bad output.
                 raise
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 last_exc = exc
                 logger.warning(
                     "Z.AI API error on attempt %s/%s: %s", attempt, attempts, exc

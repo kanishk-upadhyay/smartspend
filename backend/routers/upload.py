@@ -1,29 +1,29 @@
-import os
 import base64
+import os
 from uuid import uuid4
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from database import AccountSettings
-from gemini_extractor import ReceiptExtractionError
-from schemas import UploadRequest
 import deps
+from database import AccountSettings
 from deps import (
-    get_db,
-    logger,
     ALLOWED_UPLOAD_EXTS,
     EXT_TO_MIME,
     MAX_UPLOAD_BYTES,
-    SUPABASE_URL,
-    SUPABASE_KEY,
-    S3_ENDPOINT_URL,
     S3_ACCESS_KEY_ID,
+    S3_ENDPOINT_URL,
+    SUPABASE_KEY,
+    SUPABASE_URL,
     _check_upload_rate,
+    _displayable_image_path,
     _safe_upload_path,
     _upload_to_storage,
-    _displayable_image_path,
+    get_db,
+    logger,
 )
+from gemini_extractor import ReceiptExtractionError
+from schemas import UploadRequest
 
 router = APIRouter()
 

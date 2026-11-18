@@ -18,14 +18,13 @@ Run:
 """
 
 import base64
-import json
 import os
 import sys
 import tempfile
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 
 # ── PATH ─────────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -39,14 +38,14 @@ os.environ.pop("SUPABASE_URL", None)
 os.environ.pop("SUPABASE_KEY", None)
 
 # ── IMPORTS — after env is set ────────────────────────────────────────────────
-from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-import database  # noqa: E402 — triggers DDL migrations against test DB
-import main       # noqa: E402
-import deps       # noqa: E402 — ocr_engine/_resolve_identity now live here; routers read them module-qualified
-from main import app, get_db  # noqa: E402
+import database  # noqa: F401 — triggers DDL migrations against test DB
+import deps
+import main  # noqa: F401
+from main import app, get_db
 
 # ── TEST ENGINE — same file as database.py used so schema already exists ──────
 test_engine = create_engine(
@@ -533,7 +532,8 @@ class TestOCRFallback:
         assert ZaiExtractor
 
     def test_falls_back_to_zai_when_gemini_fails(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from gemini_extractor import ReceiptExtractionError
         mock_g = MagicMock()
         mock_g.extract.side_effect = ReceiptExtractionError("down")
@@ -545,7 +545,8 @@ class TestOCRFallback:
             assert OCRProcessor()._extract("f.jpg") == "zai_result"
 
     def test_raises_when_both_fail(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from gemini_extractor import ReceiptExtractionError
         mock_g = MagicMock()
         mock_g.extract.side_effect = ReceiptExtractionError("g down")
@@ -558,7 +559,7 @@ class TestOCRFallback:
                 OCRProcessor()._extract("f.jpg")
 
     def test_gemini_only_mode_works(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
         mock_g = MagicMock()
         mock_g.extract.return_value = "gemini_ok"
         with patch("ocr_utils.GeminiExtractor", return_value=mock_g), \
@@ -744,7 +745,8 @@ class TestFXRateCache:
 
     @staticmethod
     def _make_processor():
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from ocr_utils import OCRProcessor
         with patch("ocr_utils.GeminiExtractor", return_value=MagicMock()), \
              patch("ocr_utils._try_build_zai_extractor", return_value=None):

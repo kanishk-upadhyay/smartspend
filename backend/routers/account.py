@@ -1,18 +1,18 @@
 import json
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from database import Expense, AccountSettings, Space, SpaceMember
-from schemas import AccountSettingsResponse, AccountSettingsUpdate
 import deps
+from database import AccountSettings, Expense, Space, SpaceMember
 from deps import (
-    get_db,
-    _settings_payload,
-    _normalize_theme,
     _normalize_categories,
+    _normalize_theme,
+    _settings_payload,
     _sync_supabase_user_metadata,
+    get_db,
 )
+from schemas import AccountSettingsResponse, AccountSettingsUpdate
 
 router = APIRouter()
 
@@ -53,7 +53,7 @@ def update_account_settings(request: Request, payload: AccountSettingsUpdate, db
         settings.email = update_data["email"]
     if "avatar_url" in update_data:
         settings.avatar_url = update_data["avatar_url"]
-    if "currency" in update_data and update_data["currency"]:
+    if update_data.get("currency"):
         settings.currency = update_data["currency"]
     if "theme" in update_data:
         settings.theme = _normalize_theme(update_data["theme"])

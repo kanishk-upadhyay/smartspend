@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 import tempfile
@@ -16,10 +15,11 @@ os.environ.setdefault("ZAI_API_KEY", "test-zai-key")
 os.environ.pop("SUPABASE_URL", None)
 os.environ.pop("SUPABASE_KEY", None)
 
-from fastapi.testclient import TestClient  # noqa: E402
-from database import Base, engine, Expense, Space, SpaceMember, SessionLocal  # noqa: E402
-from main import app  # noqa: E402
-import deps  # noqa: E402
+from fastapi.testclient import TestClient
+
+import deps  # noqa: F401
+from database import Base, SessionLocal, Space, SpaceMember, engine
+from main import app
 
 USER_A = {"x-smartspend-guest-id": "guest-user-a"}
 USER_B = {"x-smartspend-guest-id": "guest-user-b"}

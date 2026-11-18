@@ -13,24 +13,25 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-import deps
+import deps  # noqa: F401
+
 # Re-exported so existing tests (`from main import ...`) keep working after the
 # split. These names live in deps now but stay importable from main.
 from deps import (  # noqa: F401
+    ALLOWED_ORIGINS,
+    FRONTEND_DIST_DIR,
+    UPLOAD_DIR,
+    _is_remote_path,
+    _normalize_categories,
+    _normalize_theme,
+    _resolve_identity,
     get_db,
     ocr_engine,
-    _resolve_identity,
-    _normalize_theme,
-    _normalize_categories,
-    _is_remote_path,
-    ALLOWED_ORIGINS,
-    UPLOAD_DIR,
-    FRONTEND_DIST_DIR,
 )
-from routers import account, expenses, upload, spaces
+from routers import account, expenses, spaces, upload
 
 app = FastAPI()
 

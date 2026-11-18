@@ -122,6 +122,7 @@ export function useSpaces({ requestConfig, pushToast, setAnnouncement }: UseSpac
   // When activeSpaceId changes, refresh space data
   useEffect(() => {
     if (activeSpaceId != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchSpaceData(activeSpaceId);
     } else {
       setActiveSpaceData(null);

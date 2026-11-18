@@ -16,11 +16,11 @@ os.environ.setdefault("ZAI_API_KEY", "test-zai-key")
 os.environ.pop("SUPABASE_URL", None)
 os.environ.pop("SUPABASE_KEY", None)
 
-from fastapi.testclient import TestClient  # noqa: E402
-from database import Base, engine  # noqa: E402
-from main import app  # noqa: E402
-import deps  # noqa: E402
-from gemini_extractor import ReceiptExtractionError  # noqa: E402
+from fastapi.testclient import TestClient
+
+import deps
+from database import Base, engine
+from main import app
 
 USER_1 = {"x-smartspend-guest-id": "guest-gap-user-1"}
 USER_2 = {"x-smartspend-guest-id": "guest-gap-user-2"}

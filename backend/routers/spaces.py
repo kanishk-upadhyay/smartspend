@@ -1,23 +1,19 @@
 import json
-import os
 import secrets
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+import deps
 from database import AccountSettings, Expense, Space, SpaceMember
 from deps import (
-    get_db,
     _attach_items,
     _normalize_image_path,
-    _safe_upload_path,
-    _delete_storage_object,
     _validate_image_path,
+    get_db,
 )
-import deps
 from schemas import (
     ExpenseBase,
     ExpenseResponse,
@@ -42,7 +38,7 @@ def _generate_slug() -> str:
     return f"spc_{uuid4().hex[:12]}"
 
 
-def _get_display_name(db: Session, owner_id: str, auth_user: Optional[dict] = None) -> str:
+def _get_display_name(db: Session, owner_id: str, auth_user: dict | None = None) -> str:
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     if settings and settings.display_name:
         return settings.display_name
@@ -103,7 +99,7 @@ def create_space(request: Request, payload: SpaceCreate, db: Session = Depends(g
         join_code = f"S{uuid4().hex[:5].upper()}"
 
     slug = _generate_slug()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     space = Space(
         name=name,
@@ -132,7 +128,7 @@ def create_space(request: Request, payload: SpaceCreate, db: Session = Depends(g
     return _build_space_response(space, db, include_members=True)
 
 
-@router.get("/spaces", response_model=List[SpaceResponse])
+@router.get("/spaces", response_model=list[SpaceResponse])
 def list_spaces(request: Request, db: Session = Depends(get_db)):
     owner_id, _, _ = deps._resolve_identity(request)
     memberships = db.query(SpaceMember).filter(SpaceMember.member_id == owner_id).all()
@@ -174,7 +170,7 @@ def join_space(request: Request, payload: SpaceJoinRequest, db: Session = Depend
         member_id=owner_id,
         display_name=display_name,
         role="member",
-        joined_at=datetime.now(timezone.utc).isoformat(),
+        joined_at=datetime.now(UTC).isoformat(),
     )
     db.add(member)
     db.commit()

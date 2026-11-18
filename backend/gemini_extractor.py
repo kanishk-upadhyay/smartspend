@@ -1,8 +1,8 @@
+import logging
 import mimetypes
 import os
-import logging
 import time
-from typing import Literal, Optional
+from typing import Literal
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -53,7 +53,7 @@ Pick the definitively-labeled total (Total, Grand Total, Amount Due), not subtot
 class ReceiptItem(BaseModel):
     name: str = ""
     amount: float = 0.0
-    qty: Optional[float] = None
+    qty: float | None = None
 
 
 # Defaults let the prompt-only Z.AI backend degrade gracefully when the model

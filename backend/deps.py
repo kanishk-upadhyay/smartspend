@@ -1,18 +1,17 @@
-import os
 import json
 import logging
-import time
+import os
 import threading
+import time
 from collections import deque
 from urllib.parse import quote, urlparse
-from typing import Optional
 
-import httpx
 import boto3
+import httpx
 from botocore.config import Config
 from fastapi import HTTPException, Request
 
-from database import SessionLocal, AccountSettings
+from database import AccountSettings, SessionLocal
 from ocr_utils import ocr_engine  # noqa: F401 — re-exported singleton, patched in tests
 from schemas import AccountSettingsResponse
 
@@ -117,7 +116,7 @@ def _validate_image_path(image_path: str) -> None:
     _safe_upload_path(image_path)
 
 
-def _normalize_image_path(stored: Optional[str]) -> Optional[str]:
+def _normalize_image_path(stored: str | None) -> str | None:
     """Strip storage URL wrappers, leaving a canonical bucket object path or local filename."""
     if not stored:
         return None
@@ -143,7 +142,7 @@ _SIGNED_URL_CACHE_MAX = 10000
 _signed_url_cache: dict[str, tuple[str, float]] = {}
 
 
-def _sign_supabase_object(object_path: str, expires_in: int = _SIGNED_URL_TTL_SECONDS) -> Optional[str]:
+def _sign_supabase_object(object_path: str, expires_in: int = _SIGNED_URL_TTL_SECONDS) -> str | None:
     if not (SUPABASE_URL and SUPABASE_KEY) or not object_path:
         return None
 
@@ -181,7 +180,7 @@ def _sign_supabase_object(object_path: str, expires_in: int = _SIGNED_URL_TTL_SE
     return full_url
 
 
-def _displayable_image_path(stored: Optional[str]) -> Optional[str]:
+def _displayable_image_path(stored: str | None) -> str | None:
     object_path = _normalize_image_path(stored)
     if not object_path:
         return None
@@ -215,13 +214,13 @@ def _attach_items(expense):
     return expense
 
 
-def _normalize_theme(theme: Optional[str]) -> str:
+def _normalize_theme(theme: str | None) -> str:
     if theme in {"light", "dark", "system"}:
         return theme
     return "system"
 
 
-def _normalize_categories(categories: Optional[list]) -> list[str]:
+def _normalize_categories(categories: list | None) -> list[str]:
     if not categories:
         return []
     seen = set()
@@ -273,7 +272,7 @@ def _check_upload_rate(owner_id: str) -> None:
         hits.append(now)
 
 
-def _resolve_identity(request: Request) -> tuple[str, str, Optional[dict]]:
+def _resolve_identity(request: Request) -> tuple[str, str, dict | None]:
     auth_header = request.headers.get("authorization", "").strip()
     guest_id = request.headers.get("x-smartspend-guest-id", "").strip()
 

@@ -18,7 +18,7 @@ def _try_build_zai_extractor():
     ZAI_API_KEY is set — returns None silently otherwise so the app still
     starts with Gemini-only mode."""
     try:
-        from zai_extractor import ZaiExtractor  # noqa: PLC0415
+        from zai_extractor import ZaiExtractor
         return ZaiExtractor()
     except RuntimeError as exc:
         logger.info("Z.AI fallback not configured: %s", exc)
@@ -86,7 +86,7 @@ class OCRProcessor:
             date_obj = datetime.fromisoformat(receipt_date_iso).date()
         except (TypeError, ValueError):
             return None, None, "Receipt date invalid, cannot fetch historical FX rate."
-        for offset in range(0, 8):
+        for offset in range(8):
             query_date = (date_obj - timedelta(days=offset)).isoformat()
             url = (
                 "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/"
