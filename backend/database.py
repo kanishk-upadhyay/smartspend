@@ -43,6 +43,33 @@ class Expense(Base):
     items_json = Column(String)
     image_path = Column(String)
     owner_id = Column(String, index=True)
+    space_id = Column(Integer, index=True, nullable=True)
+    payer_name = Column(String, nullable=True)
+    split_type = Column(String, default="equal")
+    split_data_json = Column(String, nullable=True)
+
+
+class Space(Base):
+    __tablename__ = "spaces"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    join_code = Column(String, unique=True, index=True, nullable=False)
+    base_currency = Column(String, default="INR")
+    created_by = Column(String, index=True, nullable=False)
+    created_at = Column(String)
+
+
+class SpaceMember(Base):
+    __tablename__ = "space_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    space_id = Column(Integer, index=True, nullable=False)
+    member_id = Column(String, index=True, nullable=False)
+    display_name = Column(String, nullable=False)
+    role = Column(String, default="member")
+    joined_at = Column(String)
 
 
 class AccountSettings(Base):
@@ -133,6 +160,14 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN image_path VARCHAR")
         if "owner_id" not in columns:
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN owner_id VARCHAR")
+        if "space_id" not in columns:
+            connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN space_id INTEGER")
+        if "payer_name" not in columns:
+            connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN payer_name VARCHAR")
+        if "split_type" not in columns:
+            connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN split_type VARCHAR DEFAULT 'equal'")
+        if "split_data_json" not in columns:
+            connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN split_data_json TEXT")
         account_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(account_settings)").fetchall()}
         if not account_columns:
             connection.exec_driver_sql(
@@ -167,6 +202,12 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
 else:
     with engine.begin() as connection:
         connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS owner_id VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS space_id INTEGER")
+        connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payer_name VARCHAR")
+        connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_type VARCHAR DEFAULT 'equal'")
+        connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_data_json TEXT")
+        connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_expenses_space_id ON expenses (space_id)")
+        connection.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_space_members_pair ON space_members (space_id, member_id)")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS display_name VARCHAR")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS email VARCHAR")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS avatar_url VARCHAR")

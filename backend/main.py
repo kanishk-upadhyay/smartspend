@@ -30,7 +30,7 @@ from deps import (  # noqa: F401
     UPLOAD_DIR,
     FRONTEND_DIST_DIR,
 )
-from routers import account, expenses, upload
+from routers import account, expenses, upload, spaces
 
 app = FastAPI()
 
@@ -54,6 +54,7 @@ def read_health():
 app.include_router(account.router)
 app.include_router(expenses.router)
 app.include_router(upload.router)
+app.include_router(spaces.router)
 
 
 # The SPA catch-all MUST be registered AFTER every include_router above, or it

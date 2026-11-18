@@ -21,6 +21,43 @@ export interface Expense {
   item_warning?: string | null;
   items?: { name: string; amount: number; raw_amount?: number; currency?: string; source_currency?: string; fx_rate_date?: string; qty?: number }[];
   image_path?: string | null;
+  space_id?: number | null;
+  payer_name?: string | null;
+  split_type?: string | null;
+  split_data?: Record<string, number> | null;
+  can_delete?: boolean;
+}
+
+export interface SpaceMember {
+  member_id: string;
+  display_name: string;
+  role: string;
+  joined_at?: string | null;
+}
+
+export interface Space {
+  id: number;
+  name: string;
+  slug: string;
+  join_code: string;
+  base_currency: string;
+  created_by: string;
+  member_count: number;
+  total_spend: number;
+  members?: SpaceMember[];
+}
+
+export interface SpaceBalanceItem {
+  member_id: string;
+  display_name: string;
+  paid_amount: number;
+  net_balance: number;
+}
+
+export interface SpaceExpensesResponse {
+  space: Space;
+  expenses: Expense[];
+  balances: SpaceBalanceItem[];
 }
 
 export interface UploadResult {
@@ -174,7 +211,7 @@ export const getErrorMessage = (error: unknown, fallback: string) => {
   return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback;
 };
 
-export type View = 'dashboard' | 'analytics' | 'history' | 'account';
+export type View = 'dashboard' | 'analytics' | 'history' | 'account' | 'spaces';
 
 // Number inputs hold raw strings (so the field can be cleared); coerce at the
 // save boundary so the backend never persists a string in a numeric column.

@@ -105,7 +105,7 @@ def _is_remote_path(value: str) -> bool:
 
 
 def _validate_image_path(image_path: str) -> None:
-    if _is_remote_path(image_path):
+    if "://" in image_path:
         parsed = urlparse(image_path)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise HTTPException(status_code=400, detail="Invalid remote image_path")
@@ -207,6 +207,10 @@ def _attach_items(expense):
         expense.items = json.loads(expense.items_json or "[]")
     except Exception:
         expense.items = []
+    try:
+        expense.split_data = json.loads(expense.split_data_json or "{}") if getattr(expense, "split_data_json", None) else None
+    except Exception:
+        expense.split_data = None
     expense.image_path = _displayable_image_path(expense.image_path)
     return expense
 

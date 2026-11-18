@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.exc import IntegrityError
@@ -24,14 +24,12 @@ router = APIRouter()
 
 
 @router.get("/expenses", response_model=List[ExpenseResponse])
-def list_expenses(request: Request, db: Session = Depends(get_db)):
+def list_expenses(request: Request, scope: Optional[str] = None, db: Session = Depends(get_db)):
     owner_id, _, _ = deps._resolve_identity(request)
-    expenses = (
-        db.query(Expense)
-        .filter(Expense.owner_id == owner_id)
-        .order_by(Expense.id.asc())
-        .all()
-    )
+    query = db.query(Expense).filter(Expense.owner_id == owner_id)
+    if scope == "personal":
+        query = query.filter(Expense.space_id.is_(None))
+    expenses = query.order_by(Expense.id.asc()).all()
     for expense in expenses:
         _attach_items(expense)
     return expenses
@@ -48,8 +46,10 @@ def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends
             _attach_items(existing)
             return existing
 
-    payload = expense.model_dump(exclude={"items"})
+    payload = expense.model_dump(exclude={"items", "split_data"})
     payload["owner_id"] = owner_id
+    if expense.split_data:
+        payload["split_data_json"] = json.dumps(expense.split_data)
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
     db.add(db_expense)
@@ -75,10 +75,12 @@ def update_expense(expense_id: int, request: Request, expense: ExpenseUpdate, db
     if db_expense is None:
         raise HTTPException(status_code=404, detail="Expense not found")
 
-    update_data = expense.model_dump(exclude_unset=True, exclude={"items"})
+    update_data = expense.model_dump(exclude_unset=True, exclude={"items", "split_data"})
     if "image_path" in update_data and update_data["image_path"]:
         update_data["image_path"] = _normalize_image_path(update_data["image_path"])
         _validate_image_path(update_data["image_path"])
+    if "split_data" in expense.model_fields_set and expense.split_data is not None:
+        update_data["split_data_json"] = json.dumps(expense.split_data)
     for key, value in update_data.items():
         setattr(db_expense, key, value)
 
@@ -100,15 +102,18 @@ def delete_expense(expense_id: int, request: Request, db: Session = Depends(get_
     image_path = db_expense.image_path
     if image_path:
         canonical = _normalize_image_path(image_path)
-        if canonical and "/" in canonical:
-            _delete_supabase_object(image_path)
-        elif canonical:
-            try:
-                full_path = _safe_upload_path(canonical)
-                if os.path.isfile(full_path):
-                    os.remove(full_path)
-            except HTTPException:
-                pass
+        # Safe deletion: check if another expense row references the same image file
+        shared_count = db.query(Expense).filter(Expense.image_path == canonical, Expense.id != expense_id).count()
+        if shared_count == 0:
+            if canonical and "/" in canonical:
+                _delete_supabase_object(image_path)
+            elif canonical:
+                try:
+                    full_path = _safe_upload_path(canonical)
+                    if os.path.isfile(full_path):
+                        os.remove(full_path)
+                except HTTPException:
+                    pass
     db.delete(db_expense)
     db.commit()
     return {"id": expense_id, "deleted": True}

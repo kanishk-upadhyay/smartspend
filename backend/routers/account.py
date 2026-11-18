@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from database import Expense, AccountSettings
+from database import Expense, AccountSettings, Space, SpaceMember
 from schemas import AccountSettingsResponse, AccountSettingsUpdate
 import deps
 from deps import (
@@ -88,11 +88,13 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
     guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
     account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
     migrated = db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+    migrated_spaces = db.query(Space).filter(Space.created_by == guest_id).update({"created_by": owner_id})
+    migrated_members = db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).update({"member_id": owner_id})
 
     # The frontend POSTs this on every settings load, so on the common no-op
     # path (no guest rows, no guest settings) nothing actually changes and we
     # must skip the wasteful Supabase admin write below.
-    changed = bool(migrated)
+    changed = bool(migrated or migrated_spaces or migrated_members)
 
     if account_settings is None:
         account_settings = AccountSettings(owner_id=owner_id)

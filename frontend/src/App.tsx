@@ -21,6 +21,11 @@ import {
   X,
   Eye,
   EyeOff,
+  Users,
+  Copy,
+  Plus,
+  Trash2,
+  UserPlus,
 } from 'lucide-react';
 import {
   PieChart,
@@ -44,6 +49,7 @@ import { useExpenses } from './hooks/useExpenses';
 import { useReceiptQueue } from './hooks/useReceiptQueue';
 import { useAuth } from './hooks/useAuth';
 import { useAccountSettings } from './hooks/useAccountSettings';
+import { useSpaces } from './hooks/useSpaces';
 import {
   API_URL,
   getReceiptUrl,
@@ -305,6 +311,77 @@ export default function App() {
     saveExpense,
     reset: resetReceiptQueue,
   } = useReceiptQueue(requestConfig, fetchExpenses, setAnnouncement, pushToast, categoryOptions, customCategories);
+
+  const {
+    spaces,
+    activeSpaceId,
+    setActiveSpaceId,
+    activeSpaceData,
+    spacesLoading,
+    fetchSpaces,
+    createSpace,
+    joinSpace,
+    deleteSpace,
+    reset: resetSpaces,
+  } = useSpaces({
+    requestConfig,
+    pushToast,
+    setAnnouncement,
+  });
+
+  const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
+  const [newSpaceName, setNewSpaceName] = useState('');
+  const [newSpaceCurrency, setNewSpaceCurrency] = useState(DEFAULT_CURRENCY);
+  const [createSpaceBusy, setCreateSpaceBusy] = useState(false);
+
+  const [showJoinSpaceModal, setShowJoinSpaceModal] = useState(false);
+  const [joinSpaceCode, setJoinSpaceCode] = useState('');
+  const [joinDisplayName, setJoinDisplayName] = useState('');
+  const [joinSpaceBusy, setJoinSpaceBusy] = useState(false);
+
+  const [selectedDestinationSpaceId, setSelectedDestinationSpaceId] = useState<number | null>(null);
+  const [customPayerName, setCustomPayerName] = useState('');
+
+  const handleCreateSpace = async () => {
+    if (!newSpaceName.trim()) return;
+    setCreateSpaceBusy(true);
+    try {
+      const created = await createSpace(newSpaceName.trim(), newSpaceCurrency);
+      if (created) {
+        setNewSpaceName('');
+        setShowCreateSpaceModal(false);
+        setCurrentView('spaces');
+      }
+    } finally {
+      setCreateSpaceBusy(false);
+    }
+  };
+
+  const handleJoinSpace = async () => {
+    if (!joinSpaceCode.trim()) return;
+    setJoinSpaceBusy(true);
+    try {
+      const joined = await joinSpace(joinSpaceCode.trim(), joinDisplayName.trim() || undefined);
+      if (joined) {
+        setJoinSpaceCode('');
+        setJoinDisplayName('');
+        setShowJoinSpaceModal(false);
+        setCurrentView('spaces');
+      }
+    } finally {
+      setJoinSpaceBusy(false);
+    }
+  };
+
+  const copyJoinCode = (code: string) => {
+    try {
+      navigator.clipboard.writeText(code);
+      pushToast({ message: `Copied join code "${code}"!`, tone: 'accent' });
+    } catch {
+      pushToast({ message: `Code: ${code}`, tone: 'accent' });
+    }
+  };
+
   useLayoutEffect(() => {
     categoryRef.current = { category, setCategory };
   });
@@ -519,7 +596,8 @@ export default function App() {
   useEffect(() => {
     if (!authReady) return;
     fetchExpenses();
-  }, [authReady, fetchExpenses]);
+    fetchSpaces();
+  }, [authReady, fetchExpenses, fetchSpaces]);
 
   const closeEdit = useCallback(() => {
     if (editDraft && editOriginalRef.current && editSignature(editDraft) !== editOriginalRef.current) {
@@ -589,8 +667,9 @@ export default function App() {
     resetAccount();
     resetExpenses();
     resetReceiptQueue();
+    resetSpaces();
     setEditDraft(null);
-  }, [resetAccount, resetExpenses, resetReceiptQueue]);
+  }, [resetAccount, resetExpenses, resetReceiptQueue, resetSpaces]);
   useLayoutEffect(() => {
     resetClientStateRef.current = resetClientState;
   });
@@ -766,6 +845,7 @@ export default function App() {
             {navItem('dashboard', 'Dashboard', LayoutDashboard)}
             {navItem('analytics', 'Analytics', BarChart3)}
             {navItem('history', 'Receipts', History)}
+            {navItem('spaces', 'Shared Spaces', Users)}
             <button
               onClick={() => setCurrentView('account')}
               aria-label="Account"
@@ -1100,14 +1180,52 @@ export default function App() {
                               </div>
                             </div>
 
+                            {spaces.length > 0 && (
+                              <div className="p-3 border border-[var(--color-paper-mist)] bg-[var(--color-bg)] rounded-md space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <label className="micro-label">Destination</label>
+                                  {selectedDestinationSpaceId && (
+                                    <span className="text-[10px] text-[var(--color-accent)] font-semibold uppercase tracking-wider">Shared Circle</span>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="relative">
+                                    <select
+                                      className="input-editorial appearance-none pr-8 text-xs w-full"
+                                      value={selectedDestinationSpaceId ?? ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value ? Number(e.target.value) : null;
+                                        setSelectedDestinationSpaceId(val);
+                                      }}
+                                    >
+                                      <option value="">👤 Personal</option>
+                                      {spaces.map((sp) => (
+                                        <option key={sp.id} value={sp.id}>👥 {sp.name}</option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-mid-ash)] pointer-events-none" />
+                                  </div>
+                                  {selectedDestinationSpaceId && (
+                                    <input
+                                      type="text"
+                                      placeholder="Paid by (e.g. Alice)"
+                                      className="input-editorial text-xs"
+                                      value={customPayerName}
+                                      onChange={(e) => setCustomPayerName(e.target.value)}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
                             <button
                               type="button"
-                              onClick={saveExpense}
+                              onClick={() => saveExpense(selectedDestinationSpaceId, customPayerName || undefined)}
                               disabled={isSaving || !isValidAmount(result.extracted_data.total_amount)}
                               className="btn-primary w-full disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               <CheckCircle2 className="w-4 h-4" />
-                              {isSaving ? 'Saving…' : 'Save receipt'}
+                              {isSaving ? 'Saving…' : selectedDestinationSpaceId ? 'Save to Shared Circle' : 'Save receipt'}
                             </button>
                           </div>
                         </motion.div>
@@ -2090,6 +2208,332 @@ export default function App() {
                 )}
               </motion.div>
             )}
+
+            {currentView === 'spaces' && (
+              <motion.div
+                key="spaces"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="px-4 sm:px-6 lg:px-12 py-10 sm:py-14 lg:py-20 mx-auto"
+                style={{ maxWidth: 'var(--width-content)' }}
+              >
+                {activeSpaceId != null && activeSpaceData ? (
+                  <div>
+                    {/* Active Space Detail View */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+                      <button
+                        onClick={() => setActiveSpaceId(null)}
+                        className="btn-quiet btn--sm flex items-center gap-2"
+                      >
+                        ← Back to all spaces
+                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => copyJoinCode(activeSpaceData.space.join_code)}
+                          className="btn-quiet btn--sm flex items-center gap-1.5"
+                          title="Copy 6-letter invite code"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+                          <span>Code: <strong className="font-mono tracking-wider">{activeSpaceData.space.join_code}</strong></span>
+                        </button>
+                        {activeSpaceData.space.created_by === (session?.user?.id || guestSessionId) && (
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Delete "${activeSpaceData.space.name}"? Shared receipts will safely detach to personal ledgers.`)) {
+                                await deleteSpace(activeSpaceData.space.id);
+                              }
+                            }}
+                            className="btn-text btn-text--danger tap-target flex items-center gap-1 text-xs"
+                            title="Delete Space"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <header className="mb-10">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="micro-label">Shared Circle</span>
+                        <span className="font-mono text-xs px-2 py-0.5 border border-[var(--color-paper-mist)] rounded text-[var(--color-mid-ash)]">
+                          {activeSpaceData.space.base_currency}
+                        </span>
+                      </div>
+                      <h1 className="display-italic" style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)' }}>
+                        {activeSpaceData.space.name}
+                      </h1>
+                      <p className="font-body text-sm text-[var(--color-soft-charcoal)] mt-2">
+                        {activeSpaceData.space.member_count} {activeSpaceData.space.member_count === 1 ? 'member' : 'members'} · Equal splits
+                      </p>
+                    </header>
+
+                    {/* Balance Banner */}
+                    <div className="mb-12 border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 sm:p-8" style={{ borderRadius: 'var(--radius-lg)' }}>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-[var(--color-paper-mist)]">
+                        <div>
+                          <p className="micro-label">Total Spend</p>
+                          <p className="font-display text-3xl font-light text-[var(--color-deep-graphite)] mt-1">
+                            {formatMoney(
+                              activeSpaceData.balances.reduce((acc, b) => acc + b.paid_amount, 0),
+                              activeSpaceData.space.base_currency
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedDestinationSpaceId(activeSpaceData.space.id);
+                            setCurrentView('dashboard');
+                          }}
+                          className="btn-primary btn--sm flex items-center gap-2 self-start sm:self-auto"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Scan to this Circle</span>
+                        </button>
+                      </div>
+
+                      <div className="mt-6">
+                        <p className="micro-label mb-3">Member Balances</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                          {activeSpaceData.balances.map((b) => {
+                            const isPositive = b.net_balance > 0.01;
+                            const isNegative = b.net_balance < -0.01;
+                            return (
+                              <div
+                                key={b.member_id}
+                                className="p-4 border border-[var(--color-paper-mist)] bg-[var(--color-bg)]"
+                                style={{ borderRadius: 'var(--radius-md)' }}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="font-body text-sm font-medium text-[var(--color-deep-graphite)] truncate">
+                                    {b.display_name}
+                                  </span>
+                                  {b.member_id === (session?.user?.id || guestSessionId) && (
+                                    <span className="text-[10px] uppercase tracking-wider text-[var(--color-accent)] font-semibold">You</span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-[var(--color-mid-ash)] mb-1">
+                                  Paid: {formatMoney(b.paid_amount, activeSpaceData.space.base_currency)}
+                                </div>
+                                <div className="font-body text-sm font-semibold">
+                                  {isPositive && (
+                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                      + {formatMoney(b.net_balance, activeSpaceData.space.base_currency)} (gets back)
+                                    </span>
+                                  )}
+                                  {isNegative && (
+                                    <span className="text-rose-600 dark:text-rose-400">
+                                      - {formatMoney(Math.abs(b.net_balance), activeSpaceData.space.base_currency)} (owes)
+                                    </span>
+                                  )}
+                                  {!isPositive && !isNegative && (
+                                    <span className="text-[var(--color-mid-ash)]">Settled ($0.00)</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Receipts List */}
+                    <div>
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <p className="micro-label">Receipts</p>
+                          <h2 className="headline text-xl text-[var(--color-deep-graphite)]">
+                            {activeSpaceData.expenses.length} {activeSpaceData.expenses.length === 1 ? 'Receipt' : 'Receipts'}
+                          </h2>
+                        </div>
+                      </div>
+
+                      {activeSpaceData.expenses.length === 0 ? (
+                        <div className="p-8 border border-dashed border-[var(--color-paper-mist)] text-center" style={{ borderRadius: 'var(--radius-md)' }}>
+                          <p className="font-body text-sm text-[var(--color-soft-charcoal)] mb-4">
+                            No receipts recorded in this circle yet.
+                          </p>
+                          <button
+                            onClick={() => {
+                              setSelectedDestinationSpaceId(activeSpaceData.space.id);
+                              setCurrentView('dashboard');
+                            }}
+                            className="btn-quiet btn--sm"
+                          >
+                            Scan first shared receipt
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-[var(--color-paper-mist)] border border-[var(--color-paper-mist)] bg-[var(--color-surface)]" style={{ borderRadius: 'var(--radius-md)' }}>
+                          {activeSpaceData.expenses.map((exp) => (
+                            <div key={exp.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--color-bg)] transition-colors">
+                              <div className="min-w-0 flex items-start gap-4">
+                                {exp.image_path ? (
+                                  <img
+                                    src={getReceiptUrl(exp.image_path)}
+                                    alt=""
+                                    className="w-12 h-12 object-cover rounded border border-[var(--color-paper-mist)] flex-shrink-0 cursor-pointer"
+                                    onClick={() => {
+                                      setSelectedExpense(exp);
+                                      setShowItemsModal(true);
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded border border-[var(--color-paper-mist)] bg-[var(--color-bg)] flex items-center justify-center text-[var(--color-mid-ash)] flex-shrink-0">
+                                    🧾
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="font-body text-sm font-semibold text-[var(--color-deep-graphite)]">
+                                    {exp.vendor || 'Untitled Expense'}
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-mid-ash)] mt-1">
+                                    <span>{formatDate(exp.date)}</span>
+                                    <span>·</span>
+                                    <span className="px-1.5 py-0.5 border border-[var(--color-paper-mist)] rounded">{exp.category}</span>
+                                    <span>·</span>
+                                    <span className="text-[var(--color-accent)] font-medium">
+                                      Paid by {exp.payer_name || 'Member'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between sm:justify-end gap-4">
+                                <p className="font-display text-lg font-medium text-[var(--color-deep-graphite)]">
+                                  {formatMoney(exp.total_amount, exp.currency || activeSpaceData.space.base_currency)}
+                                </p>
+                                {exp.items && exp.items.length > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedExpense(exp);
+                                      setShowItemsModal(true);
+                                    }}
+                                    className="btn-quiet btn--sm text-xs"
+                                  >
+                                    {exp.items.length} items
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {/* All Spaces Hub */}
+                    <header className="mb-10 sm:mb-12">
+                      <p className="micro-label mb-3">Shared Circles</p>
+                      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+                        <div>
+                          <h1 className="display-italic" style={{ fontSize: 'clamp(2.5rem, 6vw, 4rem)' }}>
+                            Split bills, seamlessly.
+                          </h1>
+                          <p className="font-body text-sm text-[var(--color-soft-charcoal)] mt-2 max-w-xl">
+                            Collaborative spaces for housemates, group trips, and shared bills. Scan receipts to a circle and SmartSpend tracks balances without spreadsheets.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 self-start sm:self-auto flex-shrink-0">
+                          <button
+                            onClick={() => setShowJoinSpaceModal(true)}
+                            className="btn-quiet btn--sm flex items-center gap-2"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>Join with Code</span>
+                          </button>
+                          <button
+                            onClick={() => setShowCreateSpaceModal(true)}
+                            className="btn-primary btn--sm flex items-center gap-2"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Create Space</span>
+                          </button>
+                        </div>
+                      </div>
+                    </header>
+
+                    {spacesLoading ? (
+                      <div className="py-20 flex items-center justify-center gap-3 text-[var(--color-mid-ash)]">
+                        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-accent)]" />
+                        <p className="text-sm">Loading spaces…</p>
+                      </div>
+                    ) : spaces.length === 0 ? (
+                      <div className="p-10 sm:p-16 border border-dashed border-[var(--color-paper-mist)] text-center bg-[var(--color-surface)]" style={{ borderRadius: 'var(--radius-lg)' }}>
+                        <Users className="w-10 h-10 text-[var(--color-accent)] mx-auto mb-4 opacity-80" />
+                        <h3 className="headline text-xl text-[var(--color-deep-graphite)] mb-2">No Shared Spaces Yet</h3>
+                        <p className="font-body text-sm text-[var(--color-soft-charcoal)] max-w-md mx-auto mb-6">
+                          Create a space for your apartment, a weekend trip, or recurring group expenses. Anyone with your 6-letter invite code can join and upload receipts.
+                        </p>
+                        <div className="flex items-center justify-center gap-4">
+                          <button
+                            onClick={() => setShowCreateSpaceModal(true)}
+                            className="btn-primary btn--sm"
+                          >
+                            Create your first space
+                          </button>
+                          <button
+                            onClick={() => setShowJoinSpaceModal(true)}
+                            className="btn-quiet btn--sm"
+                          >
+                            Join existing space
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {spaces.map((sp) => (
+                          <div
+                            key={sp.id}
+                            onClick={() => setActiveSpaceId(sp.id)}
+                            className="group border border-[var(--color-paper-mist)] bg-[var(--color-surface)] p-6 hover:border-[var(--color-accent)] transition-all cursor-pointer flex flex-col justify-between"
+                            style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-3">
+                                <span className="micro-label">{sp.base_currency}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    copyJoinCode(sp.join_code);
+                                  }}
+                                  className="text-xs font-mono px-2 py-0.5 border border-[var(--color-paper-mist)] rounded text-[var(--color-mid-ash)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors flex items-center gap-1"
+                                  title="Copy join code"
+                                >
+                                  <span>{sp.join_code}</span>
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <h3 className="headline text-xl text-[var(--color-deep-graphite)] group-hover:text-[var(--color-accent)] transition-colors mb-2">
+                                {sp.name}
+                              </h3>
+                              <p className="font-body text-xs text-[var(--color-mid-ash)]">
+                                {sp.member_count} {sp.member_count === 1 ? 'member' : 'members'} · {sp.created_by === (session?.user?.id || guestSessionId) ? 'Created by you' : 'Joined'}
+                              </p>
+                            </div>
+
+                            <div className="pt-6 mt-6 border-t border-[var(--color-paper-mist)] flex items-center justify-between">
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider text-[var(--color-mid-ash)]">Total Spend</span>
+                                <p className="font-display text-lg text-[var(--color-deep-graphite)] font-light">
+                                  {formatMoney(sp.total_spend || 0, sp.base_currency)}
+                                </p>
+                              </div>
+                              <span className="btn-text btn-text--accent text-sm">
+                                Open circle →
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
           </AnimatePresence>
 
           {/* HEIC helper dialog */}
@@ -2349,6 +2793,130 @@ export default function App() {
                     className="btn-primary btn--sm disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     Save changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Create Space Modal */}
+          {showCreateSpaceModal && (
+            <div role="dialog" aria-modal="true" aria-labelledby="create-space-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto overscroll-contain">
+              <button
+                type="button"
+                aria-label="Close dialog"
+                className="absolute inset-0 border-0 bg-black/40 p-0"
+                onClick={() => setShowCreateSpaceModal(false)}
+              />
+              <div
+                className="relative z-10 w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-6 sm:p-8 mt-2 sm:mt-0"
+                style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
+              >
+                <div className="flex justify-between items-baseline mb-6">
+                  <div>
+                    <p className="micro-label mb-2">New Circle</p>
+                    <h3 id="create-space-title" className="headline text-2xl text-[var(--color-deep-graphite)]">Create Shared Space</h3>
+                  </div>
+                  <button onClick={() => setShowCreateSpaceModal(false)} className="btn-text">Close</button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="micro-label block mb-2">Space Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Apartment 4B, Goa Trip 2026"
+                      className="input-editorial w-full"
+                      value={newSpaceName}
+                      onChange={(e) => setNewSpaceName(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="micro-label block mb-2">Base Currency</label>
+                    <div className="relative">
+                      <select
+                        className="input-editorial appearance-none pr-10 w-full"
+                        value={newSpaceCurrency}
+                        onChange={(e) => setNewSpaceCurrency(e.target.value)}
+                      >
+                        {CURRENCY_OPTIONS.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-mid-ash)] pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end gap-3">
+                  <button onClick={() => setShowCreateSpaceModal(false)} className="btn-quiet btn--sm">Cancel</button>
+                  <button
+                    onClick={handleCreateSpace}
+                    disabled={createSpaceBusy || !newSpaceName.trim()}
+                    className="btn-primary btn--sm disabled:opacity-60"
+                  >
+                    {createSpaceBusy ? 'Creating…' : 'Create Space'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Join Space Modal */}
+          {showJoinSpaceModal && (
+            <div role="dialog" aria-modal="true" aria-labelledby="join-space-title" className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto overscroll-contain">
+              <button
+                type="button"
+                aria-label="Close dialog"
+                className="absolute inset-0 border-0 bg-black/40 p-0"
+                onClick={() => setShowJoinSpaceModal(false)}
+              />
+              <div
+                className="relative z-10 w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-paper-mist)] p-6 sm:p-8 mt-2 sm:mt-0"
+                style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lifted-card)' }}
+              >
+                <div className="flex justify-between items-baseline mb-6">
+                  <div>
+                    <p className="micro-label mb-2">Invite Code</p>
+                    <h3 id="join-space-title" className="headline text-2xl text-[var(--color-deep-graphite)]">Join a Space</h3>
+                  </div>
+                  <button onClick={() => setShowJoinSpaceModal(false)} className="btn-text">Close</button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="micro-label block mb-2">6-Character Code or Link Slug</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. K9X2P4"
+                      className="input-editorial w-full font-mono uppercase tracking-widest text-lg"
+                      maxLength={20}
+                      value={joinSpaceCode}
+                      onChange={(e) => setJoinSpaceCode(e.target.value.toUpperCase())}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="micro-label block mb-2">Your Display Name in Circle (optional)</label>
+                    <input
+                      type="text"
+                      placeholder={identityLabel}
+                      className="input-editorial w-full"
+                      value={joinDisplayName}
+                      onChange={(e) => setJoinDisplayName(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end gap-3">
+                  <button onClick={() => setShowJoinSpaceModal(false)} className="btn-quiet btn--sm">Cancel</button>
+                  <button
+                    onClick={handleJoinSpace}
+                    disabled={joinSpaceBusy || !joinSpaceCode.trim()}
+                    className="btn-primary btn--sm disabled:opacity-60"
+                  >
+                    {joinSpaceBusy ? 'Joining…' : 'Join Space'}
                   </button>
                 </div>
               </div>

@@ -183,14 +183,14 @@ export function useReceiptQueue(
     setAnnouncement('Queue cleared');
   };
 
-  const saveExpense = async () => {
+  const saveExpense = async (spaceId?: number | null, payerName?: string) => {
     if (!result || isSaving || saveLockRef.current) return;
     saveLockRef.current = true;
     setIsSaving(true);
     try {
       const sourceCurrency = result.extracted_data.source_currency || DEFAULT_CURRENCY;
       const receiptDate = result.extracted_data.receipt_date || result.extracted_data.date;
-      const payload = {
+      const payload: Record<string, unknown> = {
         vendor: result.extracted_data.vendor,
         total_amount: parseFloat(result.extracted_data.total_amount.toString()),
         date: result.extracted_data.date,
@@ -205,13 +205,19 @@ export function useReceiptQueue(
         items: coerceItems(result.extracted_data.items),
         image_path: result.image_path || null,
       };
-      await axios.post(`${API_URL}/expenses`, payload, requestConfig);
+      if (spaceId) {
+        payload.space_id = spaceId;
+        if (payerName) payload.payer_name = payerName;
+        await axios.post(`${API_URL}/spaces/${spaceId}/expenses`, payload, requestConfig);
+      } else {
+        await axios.post(`${API_URL}/expenses`, payload, requestConfig);
+      }
       saveToStorage(LAST_RECEIPT_CURRENCY_KEY, sourceCurrency);
       setLastReceiptCurrency(sourceCurrency);
       setResult(null);
       setCurrentFileName(null);
       setCategoryWasSuggested(false);
-      pushToast({ message: `Saved ${payload.vendor || 'receipt'}.`, tone: 'accent' });
+      pushToast({ message: `Saved ${String(payload.vendor) || 'receipt'}.`, tone: 'accent' });
       onSaved();
     } catch (error) {
       console.error('Save failed:', error);
