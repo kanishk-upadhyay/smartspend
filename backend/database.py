@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import Column, Float, Integer, String, create_engine
+from sqlalchemy import Column, Float, Integer, String, UniqueConstraint, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./smartspend.db")
@@ -63,6 +63,9 @@ class Space(Base):
 
 class SpaceMember(Base):
     __tablename__ = "space_members"
+    __table_args__ = (
+        UniqueConstraint("space_id", "member_id", name="ux_space_members_pair"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     space_id = Column(Integer, index=True, nullable=False)
@@ -136,6 +139,26 @@ with engine.begin() as connection:
         WHERE owner_id IS NOT NULL AND owner_id != ''
         """
     )
+    connection.exec_driver_sql(
+        """
+        DELETE FROM space_members
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (PARTITION BY space_id, member_id ORDER BY id) AS rn
+                FROM space_members
+            ) dedupe
+            WHERE rn > 1
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_space_members_pair
+        ON space_members (space_id, member_id)
+        """
+    )
+    connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_expenses_space_id ON expenses (space_id)")
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     with engine.begin() as connection:

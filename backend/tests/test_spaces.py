@@ -18,7 +18,7 @@ os.environ.pop("SUPABASE_KEY", None)
 from fastapi.testclient import TestClient
 
 import deps  # noqa: F401
-from database import Base, SessionLocal, Space, SpaceMember, engine
+from database import Base, Expense, SessionLocal, Space, SpaceMember, engine
 from main import app
 
 USER_A = {"x-smartspend-guest-id": "guest-user-a"}
@@ -371,6 +371,178 @@ class TestGuestMigrationSpaces:
             # Verify memberships were transferred
             memberships = db.query(SpaceMember).filter(SpaceMember.member_id == "auth-user-permanence-999").all()
             assert len(memberships) == 2
+        finally:
+            db.close()
+
+    def test_guest_migration_with_overlapping_membership_and_images(self, client, monkeypatch):
+        """When an auth user already belongs to a space that the guest also joined, or has an identical image expense,
+        guest migration must gracefully deduplicate without IntegrityError."""
+        guest_headers = {"x-smartspend-guest-id": "guest-overlap-user"}
+        auth_headers = {
+            "Authorization": "Bearer fake-token-overlap",
+            "x-smartspend-guest-id": "guest-overlap-user",
+        }
+
+        def fake_resolve(request):
+            auth = request.headers.get("authorization")
+            guest = request.headers.get("x-smartspend-guest-id")
+            if auth:
+                return "auth-user-overlap-101", "auth", {"email": "overlap@example.com"}
+            return guest, "guest", None
+
+        monkeypatch.setattr("deps._resolve_identity", fake_resolve)
+
+        # 1. Create a space that BOTH auth user and guest join
+        shared_space = client.post("/spaces", headers=USER_A, json={"name": "Common Space"}).json()
+        client.post("/spaces/join", headers=auth_headers, json={"code_or_slug": shared_space["join_code"]})
+        client.post("/spaces/join", headers=guest_headers, json={"code_or_slug": shared_space["join_code"]})
+
+        # 2. Both auth user and guest have an expense referencing the same image_path
+        dup_image = "receipts/dup_receipt_overlap.png"
+        client.post("/expenses", headers=auth_headers, json={"vendor": "Auth Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image})
+        client.post("/expenses", headers=guest_headers, json={"vendor": "Guest Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image})
+
+        # 3. Perform guest migration
+        res = client.post("/account-migrate-guest", headers=auth_headers)
+        assert res.status_code == 200
+
+        # Verify only 1 membership exists for auth user in Common Space (no duplicate or crash)
+        db = SessionLocal()
+        try:
+            mems = db.query(SpaceMember).filter(
+                SpaceMember.space_id == shared_space["id"],
+                SpaceMember.member_id == "auth-user-overlap-101"
+            ).all()
+            assert len(mems) == 1
+
+            # Verify no constraint error on expenses
+            exps = db.query(Expense).filter(
+                Expense.owner_id == "auth-user-overlap-101",
+                Expense.image_path == dup_image
+            ).all()
+            assert len(exps) == 1
+        finally:
+            db.close()
+
+    def test_guest_migration_preserves_creator_role_when_auth_already_joined(self, client, monkeypatch):
+        """When a guest creates a space and an auth user joins it as member, claiming the guest account
+        must transfer ownership and upgrade the auth user's membership to creator."""
+        guest_headers = {"x-smartspend-guest-id": "guest-space-creator"}
+        auth_headers = {
+            "Authorization": "Bearer fake-token-creator-migration",
+            "x-smartspend-guest-id": "guest-space-creator",
+        }
+
+        def fake_resolve(request):
+            auth = request.headers.get("authorization")
+            guest = request.headers.get("x-smartspend-guest-id")
+            if auth:
+                return "auth-user-promoted-creator", "auth", {"email": "creator@example.com"}
+            return guest, "guest", None
+
+        monkeypatch.setattr("deps._resolve_identity", fake_resolve)
+
+        # 1. Guest creates space (guest is creator)
+        created_space = client.post("/spaces", headers=guest_headers, json={"name": "Creator Space"}).json()
+
+        # 2. Auth user joins space as member
+        client.post("/spaces/join", headers=auth_headers, json={"code_or_slug": created_space["join_code"]})
+
+        # 3. Perform guest migration
+        res = client.post("/account-migrate-guest", headers=auth_headers)
+        assert res.status_code == 200
+
+        db = SessionLocal()
+        try:
+            sp = db.query(Space).filter(Space.id == created_space["id"]).first()
+            assert sp.created_by == "auth-user-promoted-creator"
+
+            mems = db.query(SpaceMember).filter(
+                SpaceMember.space_id == created_space["id"],
+                SpaceMember.member_id == "auth-user-promoted-creator",
+            ).all()
+            assert len(mems) == 1
+            assert mems[0].role == "creator"
+        finally:
+            db.close()
+
+    def test_guest_migration_preserves_space_linkage_on_duplicate_image(self, client, monkeypatch):
+        """When a guest expense is linked to a space and an auth expense has the same image in personal ledger,
+        migrating must preserve the space association on the retained expense."""
+        guest_headers = {"x-smartspend-guest-id": "guest-link-user"}
+        auth_headers = {
+            "Authorization": "Bearer fake-token-link-migration",
+            "x-smartspend-guest-id": "guest-link-user",
+        }
+
+        def fake_resolve(request):
+            auth = request.headers.get("authorization")
+            guest = request.headers.get("x-smartspend-guest-id")
+            if auth:
+                return "auth-user-link-test", "auth", {"email": "link@example.com"}
+            return guest, "guest", None
+
+        monkeypatch.setattr("deps._resolve_identity", fake_resolve)
+
+        shared_space = client.post("/spaces", headers=guest_headers, json={"name": "Linkage Space"}).json()
+        dup_img = "receipts/shared_linkage_receipt.png"
+
+        # Auth user has expense with dup_img in personal view (space_id is None)
+        client.post("/expenses", headers=auth_headers, json={"vendor": "Personal Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img})
+
+        # Guest user adds expense with dup_img in space
+        client.post(f"/spaces/{shared_space['id']}/expenses", headers=guest_headers, json={"vendor": "Space Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img})
+
+        # Migrate
+        res = client.post("/account-migrate-guest", headers=auth_headers)
+        assert res.status_code == 200
+
+        db = SessionLocal()
+        try:
+            exp = db.query(Expense).filter(
+                Expense.owner_id == "auth-user-link-test",
+                Expense.image_path == dup_img,
+            ).first()
+            assert exp is not None
+            # Space linkage should be preserved
+            assert exp.space_id == shared_space["id"]
+        finally:
+            db.close()
+
+    def test_add_expense_to_space_idempotent_duplicate_image(self, client):
+        """Adding an expense with the same image_path to a space twice must not raise an IntegrityError."""
+        space = client.post("/spaces", headers=USER_A, json={"name": "Dedup Space"}).json()
+        dup_img = "receipts/space_double_click.png"
+
+        res1 = client.post(
+            f"/spaces/{space['id']}/expenses",
+            headers=USER_A,
+            json={"vendor": "First Save", "total_amount": 150.0, "date": "2026-11-15", "image_path": dup_img},
+        )
+        assert res1.status_code == 200
+
+        # Submitting the same receipt again should return 200 idempotently
+        res2 = client.post(
+            f"/spaces/{space['id']}/expenses",
+            headers=USER_A,
+            json={"vendor": "First Save", "total_amount": 150.0, "date": "2026-11-15", "image_path": dup_img},
+        )
+        assert res2.status_code == 200
+        assert res2.json()["id"] == res1.json()["id"]
+
+    def test_space_members_unique_constraint_enforced_in_db(self):
+        """Verify the database schema prevents duplicate (space_id, member_id) pairs."""
+        from sqlalchemy.exc import IntegrityError
+        db = SessionLocal()
+        try:
+            m1 = SpaceMember(space_id=9999, member_id="unique-test-user", display_name="Test 1")
+            m2 = SpaceMember(space_id=9999, member_id="unique-test-user", display_name="Test 2")
+            db.add(m1)
+            db.commit()
+            db.add(m2)
+            with pytest.raises(IntegrityError):
+                db.commit()
+            db.rollback()
         finally:
             db.close()
 

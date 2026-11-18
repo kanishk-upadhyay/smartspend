@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import deps
@@ -173,7 +174,11 @@ def join_space(request: Request, payload: SpaceJoinRequest, db: Session = Depend
         joined_at=datetime.now(UTC).isoformat(),
     )
     db.add(member)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _build_space_response(space, db, include_members=True)
 
     return _build_space_response(space, db, include_members=True)
 
@@ -278,6 +283,19 @@ def add_expense_to_space(
     if expense.image_path:
         expense.image_path = _normalize_image_path(expense.image_path)
         _validate_image_path(expense.image_path)
+        existing = (
+            db.query(Expense)
+            .filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path)
+            .first()
+        )
+        if existing is not None:
+            if existing.space_id != space.id:
+                existing.space_id = space.id
+                existing.payer_name = payer_name
+                db.commit()
+                db.refresh(existing)
+            _attach_items(existing)
+            return existing
 
     payload = expense.model_dump(exclude={"items", "split_data"})
     payload["owner_id"] = owner_id
@@ -289,7 +307,25 @@ def add_expense_to_space(
     db_expense = Expense(**payload)
     db_expense.items_json = json.dumps(expense.items or [])
     db.add(db_expense)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if expense.image_path:
+            existing = (
+                db.query(Expense)
+                .filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path)
+                .first()
+            )
+            if existing is not None:
+                if existing.space_id != space.id:
+                    existing.space_id = space.id
+                    existing.payer_name = payer_name
+                    db.commit()
+                    db.refresh(existing)
+                _attach_items(existing)
+                return existing
+        raise
     db.refresh(db_expense)
     _attach_items(db_expense)
     return db_expense

@@ -287,6 +287,28 @@ export default function App() {
   }, [customCategories]);
 
   const {
+    spaces,
+    activeSpaceId,
+    setActiveSpaceId,
+    activeSpaceData,
+    spacesLoading,
+    fetchSpaces,
+    createSpace,
+    joinSpace,
+    deleteSpace,
+    reset: resetSpaces,
+  } = useSpaces({
+    requestConfig,
+    pushToast,
+    setAnnouncement,
+  });
+
+  const onExpenseSaved = useCallback(() => {
+    fetchExpenses();
+    fetchSpaces();
+  }, [fetchExpenses, fetchSpaces]);
+
+  const {
     loading,
     isSaving,
     result,
@@ -310,24 +332,7 @@ export default function App() {
     clearQueue,
     saveExpense,
     reset: resetReceiptQueue,
-  } = useReceiptQueue(requestConfig, fetchExpenses, setAnnouncement, pushToast, categoryOptions, customCategories);
-
-  const {
-    spaces,
-    activeSpaceId,
-    setActiveSpaceId,
-    activeSpaceData,
-    spacesLoading,
-    fetchSpaces,
-    createSpace,
-    joinSpace,
-    deleteSpace,
-    reset: resetSpaces,
-  } = useSpaces({
-    requestConfig,
-    pushToast,
-    setAnnouncement,
-  });
+  } = useReceiptQueue(requestConfig, onExpenseSaved, setAnnouncement, pushToast, categoryOptions, customCategories);
 
   const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
   const [newSpaceName, setNewSpaceName] = useState('');

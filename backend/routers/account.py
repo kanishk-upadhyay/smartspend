@@ -84,9 +84,55 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     guest_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == guest_id).first()
     account_settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
-    db.query(Expense).filter(Expense.owner_id == guest_id).update({"owner_id": owner_id})
+
+    # Expenses: transfer owner_id. If an expense row already exists for owner_id with the same image_path,
+    # avoid violating ux_expenses_owner_image_path by deleting the duplicate guest row.
+    existing_images = {
+        row[0]
+        for row in db.query(Expense.image_path)
+        .filter(Expense.owner_id == owner_id, Expense.image_path.isnot(None), Expense.image_path != "")
+        .all()
+    }
+    guest_expenses = db.query(Expense).filter(Expense.owner_id == guest_id).all()
+    for exp in guest_expenses:
+        if exp.image_path and exp.image_path in existing_images:
+            # If guest expense was attached to a space and the existing auth expense wasn't,
+            # preserve the space linkage on the existing auth expense before removing the duplicate.
+            if exp.space_id:
+                existing_exp = (
+                    db.query(Expense)
+                    .filter(Expense.owner_id == owner_id, Expense.image_path == exp.image_path)
+                    .first()
+                )
+                if existing_exp and existing_exp.space_id is None:
+                    existing_exp.space_id = exp.space_id
+                    existing_exp.payer_name = exp.payer_name
+            db.delete(exp)
+        else:
+            exp.owner_id = owner_id
+
+    # Spaces created by guest: transfer to owner_id
     db.query(Space).filter(Space.created_by == guest_id).update({"created_by": owner_id})
-    db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).update({"member_id": owner_id})
+
+    # Space memberships: if owner_id is already a member of a space that guest_id was in,
+    # delete the guest membership to prevent UNIQUE constraint violation on (space_id, member_id).
+    existing_spaces = {
+        row[0]
+        for row in db.query(SpaceMember.space_id)
+        .filter(SpaceMember.member_id == owner_id)
+        .all()
+    }
+    guest_memberships = db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).all()
+    for gm in guest_memberships:
+        if gm.space_id in existing_spaces:
+            if gm.role == "creator":
+                db.query(SpaceMember).filter(
+                    SpaceMember.space_id == gm.space_id,
+                    SpaceMember.member_id == owner_id,
+                ).update({"role": "creator"})
+            db.delete(gm)
+        else:
+            gm.member_id = owner_id
 
     if account_settings is None:
         account_settings = AccountSettings(owner_id=owner_id)
