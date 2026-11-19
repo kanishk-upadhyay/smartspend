@@ -9,7 +9,9 @@ SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./smartspend.db")
 # isn't installed, so normalize the scheme to postgresql+psycopg://.
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
-elif SQLALCHEMY_DATABASE_URL.startswith("postgresql://") and "+psycopg" not in SQLALCHEMY_DATABASE_URL.split("://", 1)[0]:
+elif (
+    SQLALCHEMY_DATABASE_URL.startswith("postgresql://") and "+psycopg" not in SQLALCHEMY_DATABASE_URL.split("://", 1)[0]
+):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 engine_kwargs: dict = {}
@@ -24,6 +26,7 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 class Expense(Base):
     __tablename__ = "expenses"
@@ -63,9 +66,7 @@ class Space(Base):
 
 class SpaceMember(Base):
     __tablename__ = "space_members"
-    __table_args__ = (
-        UniqueConstraint("space_id", "member_id", name="ux_space_members_pair"),
-    )
+    __table_args__ = (UniqueConstraint("space_id", "member_id", name="ux_space_members_pair"),)
 
     id = Column(Integer, primary_key=True, index=True)
     space_id = Column(Integer, index=True, nullable=False)
@@ -86,6 +87,7 @@ class AccountSettings(Base):
     currency = Column(String, default="INR")
     theme = Column(String, default="system")
     custom_categories_json = Column(String)
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -191,7 +193,9 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN split_type VARCHAR DEFAULT 'equal'")
         if "split_data_json" not in columns:
             connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN split_data_json TEXT")
-        account_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(account_settings)").fetchall()}
+        account_columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(account_settings)").fetchall()
+        }
         if not account_columns:
             connection.exec_driver_sql(
                 """
@@ -230,11 +234,17 @@ else:
         connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_type VARCHAR DEFAULT 'equal'")
         connection.exec_driver_sql("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_data_json TEXT")
         connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_expenses_space_id ON expenses (space_id)")
-        connection.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_space_members_pair ON space_members (space_id, member_id)")
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_space_members_pair ON space_members (space_id, member_id)"
+        )
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS display_name VARCHAR")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS email VARCHAR")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS avatar_url VARCHAR")
-        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'INR'")
-        connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS theme VARCHAR DEFAULT 'system'")
+        connection.exec_driver_sql(
+            "ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'INR'"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS theme VARCHAR DEFAULT 'system'"
+        )
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS custom_categories_json TEXT")
         connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS owner_id VARCHAR")

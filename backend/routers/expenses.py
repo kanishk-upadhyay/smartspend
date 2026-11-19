@@ -40,7 +40,9 @@ def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends
     if expense.image_path:
         expense.image_path = _normalize_image_path(expense.image_path)
         _validate_image_path(expense.image_path)
-        existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
+        existing = (
+            db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
+        )
         if existing is not None:
             _attach_items(existing)
             return existing
@@ -57,7 +59,9 @@ def create_expense(request: Request, expense: ExpenseBase, db: Session = Depends
     except IntegrityError:
         db.rollback()
         if expense.image_path:
-            existing = db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
+            existing = (
+                db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
+            )
             if existing is not None:
                 _attach_items(existing)
                 return existing
@@ -169,13 +173,10 @@ def reconvert_expenses(request: Request, db: Session = Depends(get_db)):
         except (TypeError, ValueError):
             clean_date = None
 
-        rate, query_date, warning = deps.ocr_engine.get_historical_rate(
-            source_currency, preferred, clean_date
-        )
+        rate, query_date, warning = deps.ocr_engine.get_historical_rate(source_currency, preferred, clean_date)
         if rate is None or query_date is None:
             expense.currency_warning = (
-                warning
-                or f"Could not reconvert {source_currency} to {preferred} using the receipt date."
+                warning or f"Could not reconvert {source_currency} to {preferred} using the receipt date."
             )
             failed += 1
             continue

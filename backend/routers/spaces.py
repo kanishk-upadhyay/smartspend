@@ -148,20 +148,12 @@ def join_space(request: Request, payload: SpaceJoinRequest, db: Session = Depend
     if not code_or_slug:
         raise HTTPException(status_code=400, detail="Join code or link slug required")
 
-    space = (
-        db.query(Space)
-        .filter((Space.join_code == code_or_slug.upper()) | (Space.slug == code_or_slug))
-        .first()
-    )
+    space = db.query(Space).filter((Space.join_code == code_or_slug.upper()) | (Space.slug == code_or_slug)).first()
     if not space:
         raise HTTPException(status_code=404, detail="Space not found. Check join code or link.")
 
     # Idempotent: check if already member
-    existing = (
-        db.query(SpaceMember)
-        .filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id)
-        .first()
-    )
+    existing = db.query(SpaceMember).filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id).first()
     if existing:
         return _build_space_response(space, db, include_members=True)
 
@@ -191,9 +183,7 @@ def get_space(space_id: int, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Space not found")
 
     is_member = (
-        db.query(SpaceMember)
-        .filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id)
-        .first()
+        db.query(SpaceMember).filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id).first()
     )
     if not is_member and space.created_by != owner_id:
         raise HTTPException(status_code=403, detail="You are not a member of this space")
@@ -209,20 +199,13 @@ def get_space_expenses(space_id: int, request: Request, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Space not found")
 
     is_member = (
-        db.query(SpaceMember)
-        .filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id)
-        .first()
+        db.query(SpaceMember).filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id).first()
     )
     if not is_member and space.created_by != owner_id:
         raise HTTPException(status_code=403, detail="You are not a member of this space")
 
     members = db.query(SpaceMember).filter(SpaceMember.space_id == space.id).all()
-    expenses = (
-        db.query(Expense)
-        .filter(Expense.space_id == space.id)
-        .order_by(Expense.id.asc())
-        .all()
-    )
+    expenses = db.query(Expense).filter(Expense.space_id == space.id).order_by(Expense.id.asc()).all()
     for exp in expenses:
         _attach_items(exp)
 
@@ -260,18 +243,14 @@ def get_space_expenses(space_id: int, request: Request, db: Session = Depends(ge
 
 
 @router.post("/spaces/{space_id}/expenses", response_model=ExpenseResponse)
-def add_expense_to_space(
-    space_id: int, request: Request, expense: ExpenseBase, db: Session = Depends(get_db)
-):
+def add_expense_to_space(space_id: int, request: Request, expense: ExpenseBase, db: Session = Depends(get_db)):
     owner_id, _, auth_user = deps._resolve_identity(request)
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
 
     membership = (
-        db.query(SpaceMember)
-        .filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id)
-        .first()
+        db.query(SpaceMember).filter(SpaceMember.space_id == space.id, SpaceMember.member_id == owner_id).first()
     )
     if not membership and space.created_by != owner_id:
         raise HTTPException(status_code=403, detail="You are not a member of this space")
@@ -284,9 +263,7 @@ def add_expense_to_space(
         expense.image_path = _normalize_image_path(expense.image_path)
         _validate_image_path(expense.image_path)
         existing = (
-            db.query(Expense)
-            .filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path)
-            .first()
+            db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
         )
         if existing is not None:
             if existing.space_id != space.id:
@@ -313,9 +290,7 @@ def add_expense_to_space(
         db.rollback()
         if expense.image_path:
             existing = (
-                db.query(Expense)
-                .filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path)
-                .first()
+                db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == expense.image_path).first()
             )
             if existing is not None:
                 if existing.space_id != space.id:

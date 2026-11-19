@@ -83,17 +83,16 @@ deps.ocr_engine = mock_ocr
 GUEST_ID = "guest-test-abc123"
 GUEST_HEADERS = {"x-smartspend-guest-id": GUEST_ID}
 
-TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
-    "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-)
+TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
 # ── FIXTURES ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="session")
 def client():
     """TestClient with DB dependency overridden to use the test engine."""
+
     def override_get_db():
         db = TestingSessionLocal()
         try:
@@ -118,6 +117,7 @@ def reset_ocr_mock():
 # 1. Health check
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestHealth:
     def test_health_returns_200(self, client):
         r = client.get("/health")
@@ -130,6 +130,7 @@ class TestHealth:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Authentication
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestAuthentication:
     def test_no_credentials_returns_401_on_expenses(self, client):
@@ -144,9 +145,7 @@ class TestAuthentication:
     def test_different_guest_ids_are_isolated(self, client):
         a = {"x-smartspend-guest-id": "guest-iso-guest-a"}
         b = {"x-smartspend-guest-id": "guest-iso-guest-b"}
-        client.post("/expenses", headers=a, json={
-            "vendor": "Only For A", "total_amount": 100.0, "date": "2024-01-01"
-        })
+        client.post("/expenses", headers=a, json={"vendor": "Only For A", "total_amount": 100.0, "date": "2024-01-01"})
         vendors = [e["vendor"] for e in client.get("/expenses", headers=b).json()]
         assert "Only For A" not in vendors
 
@@ -155,16 +154,23 @@ class TestAuthentication:
 # 3. Expenses CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestExpensesCRUD:
     def test_list_empty_for_fresh_guest(self, client):
         h = {"x-smartspend-guest-id": "guest-fresh-999"}
         assert client.get("/expenses", headers=h).json() == []
 
     def test_create_returns_correct_fields(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "Starbucks", "total_amount": 320.0,
-            "date": "2024-03-15", "category": "Food",
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={
+                "vendor": "Starbucks",
+                "total_amount": 320.0,
+                "date": "2024-03-15",
+                "category": "Food",
+            },
+        )
         assert r.status_code == 200
         body = r.json()
         assert body["vendor"] == "Starbucks"
@@ -174,33 +180,28 @@ class TestExpensesCRUD:
 
     def test_created_expense_appears_in_list(self, client):
         h = {"x-smartspend-guest-id": "guest-list-g1"}
-        client.post("/expenses", headers=h, json={
-            "vendor": "Zomato", "total_amount": 599.0, "date": "2024-04-01"
-        })
+        client.post("/expenses", headers=h, json={"vendor": "Zomato", "total_amount": 599.0, "date": "2024-04-01"})
         vendors = [e["vendor"] for e in client.get("/expenses", headers=h).json()]
         assert "Zomato" in vendors
 
     def test_update_changes_vendor_and_amount(self, client):
         h = {"x-smartspend-guest-id": "guest-upd-g1"}
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "Old", "total_amount": 100.0, "date": "2024-01-01"
-        }).json()["id"]
-        r = client.put(f"/expenses/{eid}", headers=h, json={
-            "vendor": "New", "total_amount": 250.0
-        })
+        eid = client.post(
+            "/expenses", headers=h, json={"vendor": "Old", "total_amount": 100.0, "date": "2024-01-01"}
+        ).json()["id"]
+        r = client.put(f"/expenses/{eid}", headers=h, json={"vendor": "New", "total_amount": 250.0})
         assert r.status_code == 200
         assert r.json()["vendor"] == "New"
         assert r.json()["total_amount"] == 250.0
 
     def test_update_nonexistent_returns_404(self, client):
-        assert client.put("/expenses/9999999", headers=GUEST_HEADERS,
-                          json={"vendor": "X"}).status_code == 404
+        assert client.put("/expenses/9999999", headers=GUEST_HEADERS, json={"vendor": "X"}).status_code == 404
 
     def test_delete_removes_expense(self, client):
         h = {"x-smartspend-guest-id": "guest-del-g1"}
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "Gone", "total_amount": 50.0, "date": "2024-01-01"
-        }).json()["id"]
+        eid = client.post(
+            "/expenses", headers=h, json={"vendor": "Gone", "total_amount": 50.0, "date": "2024-01-01"}
+        ).json()["id"]
         r = client.delete(f"/expenses/{eid}", headers=h)
         assert r.status_code == 200
         assert r.json()["deleted"] is True
@@ -213,42 +214,57 @@ class TestExpensesCRUD:
     def test_cannot_delete_other_users_expense(self, client):
         owner = {"x-smartspend-guest-id": "guest-owner-x"}
         thief = {"x-smartspend-guest-id": "guest-thief-y"}
-        eid = client.post("/expenses", headers=owner, json={
-            "vendor": "Private", "total_amount": 100.0, "date": "2024-01-01"
-        }).json()["id"]
+        eid = client.post(
+            "/expenses", headers=owner, json={"vendor": "Private", "total_amount": 100.0, "date": "2024-01-01"}
+        ).json()["id"]
         assert client.delete(f"/expenses/{eid}", headers=thief).status_code == 404
 
     def test_items_roundtrip(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "McDonald's", "total_amount": 199.0, "date": "2024-05-10",
-            "items": [{"name": "Burger", "amount": 199.0, "qty": 1}],
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={
+                "vendor": "McDonald's",
+                "total_amount": 199.0,
+                "date": "2024-05-10",
+                "items": [{"name": "Burger", "amount": 199.0, "qty": 1}],
+            },
+        )
         items = r.json()["items"]
         assert len(items) == 1
         assert items[0]["name"] == "Burger"
 
     def test_default_category_is_general(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "Unknown", "total_amount": 10.0, "date": "2024-01-01"
-        })
+        r = client.post(
+            "/expenses", headers=GUEST_HEADERS, json={"vendor": "Unknown", "total_amount": 10.0, "date": "2024-01-01"}
+        )
         assert r.json()["category"] == "General"
 
     def test_explicit_category_preserved(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "Uber", "total_amount": 250.0, "date": "2024-06-01",
-            "category": "Transport"
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={"vendor": "Uber", "total_amount": 250.0, "date": "2024-06-01", "category": "Transport"},
+        )
         assert r.json()["category"] == "Transport"
 
     def test_update_items_via_put(self, client):
         h = {"x-smartspend-guest-id": "guest-items-upd-g"}
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "Shop", "total_amount": 100.0, "date": "2024-01-01",
-            "items": [{"name": "A", "amount": 100.0}]
-        }).json()["id"]
-        r = client.put(f"/expenses/{eid}", headers=h, json={
-            "items": [{"name": "B", "amount": 50.0}, {"name": "C", "amount": 50.0}]
-        })
+        eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "Shop",
+                "total_amount": 100.0,
+                "date": "2024-01-01",
+                "items": [{"name": "A", "amount": 100.0}],
+            },
+        ).json()["id"]
+        r = client.put(
+            f"/expenses/{eid}",
+            headers=h,
+            json={"items": [{"name": "B", "amount": 50.0}, {"name": "C", "amount": 50.0}]},
+        )
         assert len(r.json()["items"]) == 2
 
 
@@ -256,27 +272,22 @@ class TestExpensesCRUD:
 # 4. Upload endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestUpload:
     # /upload now requires an identity (the frontend already sends it), so every
     # call here passes GUEST_HEADERS.
     def test_requires_identity(self, client):
-        r = client.post("/upload", json={
-            "filename": "r.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", json={"filename": "r.png", "data_base64": TINY_PNG_B64})
         assert r.status_code == 401
 
     def test_oversized_payload_returns_413(self, client):
         # Raw ~20MB > 15MB cap; rejected pre-decode on base64 length.
         big = base64.b64encode(b"x" * (20 * 1024 * 1024)).decode()
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "big.png", "data_base64": big
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "big.png", "data_base64": big})
         assert r.status_code == 413
 
     def test_png_returns_extracted_data(self, client):
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "receipt.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "receipt.png", "data_base64": TINY_PNG_B64})
         assert r.status_code == 200
         d = r.json()["extracted_data"]
         assert d["vendor"] == "Test Cafe"
@@ -284,63 +295,76 @@ class TestUpload:
         assert d["category"] == "Food"
 
     def test_jpeg_accepted(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.jpg", "data_base64": TINY_PNG_B64
-        }).status_code == 200
+        assert (
+            client.post(
+                "/upload", headers=GUEST_HEADERS, json={"filename": "r.jpg", "data_base64": TINY_PNG_B64}
+            ).status_code
+            == 200
+        )
 
     def test_webp_accepted(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.webp", "data_base64": TINY_PNG_B64
-        }).status_code == 200
+        assert (
+            client.post(
+                "/upload", headers=GUEST_HEADERS, json={"filename": "r.webp", "data_base64": TINY_PNG_B64}
+            ).status_code
+            == 200
+        )
 
     def test_pdf_accepted(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.pdf",
-            "data_base64": base64.b64encode(b"%PDF-1.4 fake").decode()
-        }).status_code == 200
+        assert (
+            client.post(
+                "/upload",
+                headers=GUEST_HEADERS,
+                json={"filename": "r.pdf", "data_base64": base64.b64encode(b"%PDF-1.4 fake").decode()},
+            ).status_code
+            == 200
+        )
 
     def test_response_contains_image_path(self, client):
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "r.png", "data_base64": TINY_PNG_B64})
         assert r.json()["image_path"] is not None
 
     def test_disallowed_extension_returns_400(self, client):
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "evil.exe", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "evil.exe", "data_base64": TINY_PNG_B64})
         assert r.status_code == 400
         assert "Unsupported file type" in r.json()["detail"]
 
     def test_no_extension_returns_400(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "noext", "data_base64": TINY_PNG_B64
-        }).status_code == 400
+        assert (
+            client.post(
+                "/upload", headers=GUEST_HEADERS, json={"filename": "noext", "data_base64": TINY_PNG_B64}
+            ).status_code
+            == 400
+        )
 
     def test_invalid_base64_returns_400(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.png", "data_base64": "!!!bad!!!"
-        }).status_code == 400
+        assert (
+            client.post(
+                "/upload", headers=GUEST_HEADERS, json={"filename": "r.png", "data_base64": "!!!bad!!!"}
+            ).status_code
+            == 400
+        )
 
     def test_empty_file_returns_400(self, client):
-        assert client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.png",
-            "data_base64": base64.b64encode(b"").decode()
-        }).status_code == 400
+        assert (
+            client.post(
+                "/upload",
+                headers=GUEST_HEADERS,
+                json={"filename": "r.png", "data_base64": base64.b64encode(b"").decode()},
+            ).status_code
+            == 400
+        )
 
     def test_ocr_failure_returns_502(self, client):
         from gemini_extractor import ReceiptExtractionError
+
         mock_ocr.extract_data.side_effect = ReceiptExtractionError("OCR failed")
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "bad.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "bad.png", "data_base64": TINY_PNG_B64})
         assert r.status_code == 502
         assert "OCR" in r.json()["detail"]
 
     def test_upload_returns_items_from_ocr(self, client):
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "r.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "r.png", "data_base64": TINY_PNG_B64})
         items = r.json()["extracted_data"]["items"]
         assert items[0]["name"] == "Coffee"
 
@@ -354,18 +378,24 @@ class TestUpload:
         def fake_extract(image_path, base_currency="INR"):
             base = (base_currency or "INR").upper()
             return {
-                "vendor": "Overseas Cafe", "total_amount": 10.0,
-                "raw_total_amount": 10.0, "date": "2024-05-01",
-                "receipt_date": "2024-05-01", "currency": base,
-                "source_currency": base, "detected_currencies": [base],
-                "currency_warning": None, "fx_rate_date": None,
-                "item_warning": None, "items": [], "category": "Food",
+                "vendor": "Overseas Cafe",
+                "total_amount": 10.0,
+                "raw_total_amount": 10.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": base,
+                "source_currency": base,
+                "detected_currencies": [base],
+                "currency_warning": None,
+                "fx_rate_date": None,
+                "item_warning": None,
+                "items": [],
+                "category": "Food",
             }
+
         mock_ocr.extract_data.side_effect = fake_extract
 
-        r = client.post("/upload", headers=h, json={
-            "filename": "r.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=h, json={"filename": "r.png", "data_base64": TINY_PNG_B64})
         assert r.status_code == 200
         # Called with the preferred currency as base_currency.
         _, kwargs = mock_ocr.extract_data.call_args
@@ -381,9 +411,7 @@ class TestUpload:
         monkeypatch.setattr("routers.upload.S3_ENDPOINT_URL", "https://s3.example.com")
         monkeypatch.setattr("routers.upload.S3_ACCESS_KEY_ID", "test-key")
 
-        r = client.post("/upload", headers=GUEST_HEADERS, json={
-            "filename": "s3_test.png", "data_base64": TINY_PNG_B64
-        })
+        r = client.post("/upload", headers=GUEST_HEADERS, json={"filename": "s3_test.png", "data_base64": TINY_PNG_B64})
         assert r.status_code == 200
         assert mock_s3.put_object.called
         call_kwargs = mock_s3.put_object.call_args[1]
@@ -395,6 +423,7 @@ class TestUpload:
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Account settings
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestAccountSettings:
     H = {"x-smartspend-guest-id": "guest-settings-g1"}
@@ -410,36 +439,29 @@ class TestAccountSettings:
         assert r.json()["currency"] == "USD"
 
     def test_update_theme_light(self, client):
-        assert client.put("/account-settings", headers=self.H,
-                          json={"theme": "light"}).json()["theme"] == "light"
+        assert client.put("/account-settings", headers=self.H, json={"theme": "light"}).json()["theme"] == "light"
 
     def test_update_theme_dark(self, client):
-        assert client.put("/account-settings", headers=self.H,
-                          json={"theme": "dark"}).json()["theme"] == "dark"
+        assert client.put("/account-settings", headers=self.H, json={"theme": "dark"}).json()["theme"] == "dark"
 
     def test_update_theme_system(self, client):
-        assert client.put("/account-settings", headers=self.H,
-                          json={"theme": "system"}).json()["theme"] == "system"
+        assert client.put("/account-settings", headers=self.H, json={"theme": "system"}).json()["theme"] == "system"
 
     def test_invalid_theme_falls_back_to_system(self, client):
-        assert client.put("/account-settings", headers=self.H,
-                          json={"theme": "rainbow"}).json()["theme"] == "system"
+        assert client.put("/account-settings", headers=self.H, json={"theme": "rainbow"}).json()["theme"] == "system"
 
     def test_update_display_name(self, client):
-        r = client.put("/account-settings", headers=self.H,
-                       json={"display_name": "Kanishk"})
+        r = client.put("/account-settings", headers=self.H, json={"display_name": "Kanishk"})
         assert r.json()["display_name"] == "Kanishk"
 
     def test_update_custom_categories(self, client):
         cats = ["Dining", "Subscriptions"]
-        r = client.put("/account-settings", headers=self.H,
-                       json={"custom_categories": cats})
+        r = client.put("/account-settings", headers=self.H, json={"custom_categories": cats})
         assert r.json()["custom_categories"] == cats
 
     def test_duplicate_categories_removed(self, client):
         h = {"x-smartspend-guest-id": "guest-dedup-g2"}
-        r = client.put("/account-settings", headers=h,
-                       json={"custom_categories": ["Food", "Food", "Travel"]})
+        r = client.put("/account-settings", headers=h, json={"custom_categories": ["Food", "Food", "Travel"]})
         cats = r.json()["custom_categories"]
         assert cats.count("Food") == 1
 
@@ -451,26 +473,45 @@ class TestAccountSettings:
 # 6. Security
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestSecurity:
     def test_path_traversal_rejected(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "E", "total_amount": 1.0, "date": "2024-01-01",
-            "image_path": "../../etc/passwd",
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={
+                "vendor": "E",
+                "total_amount": 1.0,
+                "date": "2024-01-01",
+                "image_path": "../../etc/passwd",
+            },
+        )
         assert r.status_code == 400
 
     def test_absolute_path_rejected(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "E", "total_amount": 1.0, "date": "2024-01-01",
-            "image_path": "/etc/passwd",
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={
+                "vendor": "E",
+                "total_amount": 1.0,
+                "date": "2024-01-01",
+                "image_path": "/etc/passwd",
+            },
+        )
         assert r.status_code == 400
 
     def test_https_image_path_accepted(self, client):
-        r = client.post("/expenses", headers=GUEST_HEADERS, json={
-            "vendor": "Valid", "total_amount": 10.0, "date": "2024-01-01",
-            "image_path": "https://example.com/receipt.png",
-        })
+        r = client.post(
+            "/expenses",
+            headers=GUEST_HEADERS,
+            json={
+                "vendor": "Valid",
+                "total_amount": 10.0,
+                "date": "2024-01-01",
+                "image_path": "https://example.com/receipt.png",
+            },
+        )
         assert r.status_code == 200
 
 
@@ -478,35 +519,42 @@ class TestSecurity:
 # 7. Unit tests — pure helper functions
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestHelpers:
     def test_normalize_theme_valid(self):
         from main import _normalize_theme
+
         assert _normalize_theme("light") == "light"
         assert _normalize_theme("dark") == "dark"
         assert _normalize_theme("system") == "system"
 
     def test_normalize_theme_invalid(self):
         from main import _normalize_theme
+
         assert _normalize_theme("purple") == "system"
         assert _normalize_theme(None) == "system"
         assert _normalize_theme("") == "system"
 
     def test_normalize_categories_deduplicates(self):
         from main import _normalize_categories
+
         result = _normalize_categories(["Food", "Food", "Travel"])
         assert result.count("Food") == 1
 
     def test_normalize_categories_strips_whitespace(self):
         from main import _normalize_categories
+
         assert "Food" in _normalize_categories(["  Food  "])
 
     def test_normalize_categories_empty(self):
         from main import _normalize_categories
+
         assert _normalize_categories([]) == []
         assert _normalize_categories(None) == []
 
     def test_is_remote_path(self):
         from main import _is_remote_path
+
         assert _is_remote_path("https://x.com/f.jpg") is True
         assert _is_remote_path("http://x.com/f.jpg") is True
         assert _is_remote_path("local.jpg") is False
@@ -517,54 +565,70 @@ class TestHelpers:
 # 8. OCR fallback unit tests
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestOCRFallback:
     def test_receipt_extraction_error_is_runtime_error(self):
         from gemini_extractor import ReceiptExtractionError
+
         assert isinstance(ReceiptExtractionError("test"), RuntimeError)
 
     def test_gemini_extractor_importable(self):
         from gemini_extractor import GeminiExtractor, ReceiptData
+
         assert GeminiExtractor and ReceiptData
 
     def test_zai_extractor_importable(self):
         pytest.importorskip("zai", reason="zai-sdk not installed")
         from zai_extractor import ZaiExtractor
+
         assert ZaiExtractor
 
     def test_falls_back_to_zai_when_gemini_fails(self):
         from unittest.mock import MagicMock, patch
 
         from gemini_extractor import ReceiptExtractionError
+
         mock_g = MagicMock()
         mock_g.extract.side_effect = ReceiptExtractionError("down")
         mock_z = MagicMock()
         mock_z.extract.return_value = "zai_result"
-        with patch("ocr_utils.GeminiExtractor", return_value=mock_g), \
-             patch("ocr_utils._try_build_zai_extractor", return_value=mock_z):
+        with (
+            patch("ocr_utils.GeminiExtractor", return_value=mock_g),
+            patch("ocr_utils._try_build_zai_extractor", return_value=mock_z),
+        ):
             from ocr_utils import OCRProcessor
+
             assert OCRProcessor()._extract("f.jpg") == "zai_result"
 
     def test_raises_when_both_fail(self):
         from unittest.mock import MagicMock, patch
 
         from gemini_extractor import ReceiptExtractionError
+
         mock_g = MagicMock()
         mock_g.extract.side_effect = ReceiptExtractionError("g down")
         mock_z = MagicMock()
         mock_z.extract.side_effect = ReceiptExtractionError("z down")
-        with patch("ocr_utils.GeminiExtractor", return_value=mock_g), \
-             patch("ocr_utils._try_build_zai_extractor", return_value=mock_z):
+        with (
+            patch("ocr_utils.GeminiExtractor", return_value=mock_g),
+            patch("ocr_utils._try_build_zai_extractor", return_value=mock_z),
+        ):
             from ocr_utils import OCRProcessor
+
             with pytest.raises(ReceiptExtractionError):
                 OCRProcessor()._extract("f.jpg")
 
     def test_gemini_only_mode_works(self):
         from unittest.mock import MagicMock, patch
+
         mock_g = MagicMock()
         mock_g.extract.return_value = "gemini_ok"
-        with patch("ocr_utils.GeminiExtractor", return_value=mock_g), \
-             patch("ocr_utils._try_build_zai_extractor", return_value=None):
+        with (
+            patch("ocr_utils.GeminiExtractor", return_value=mock_g),
+            patch("ocr_utils._try_build_zai_extractor", return_value=None),
+        ):
             from ocr_utils import OCRProcessor
+
             assert OCRProcessor()._extract("f.jpg") == "gemini_ok"
 
 
@@ -572,26 +636,45 @@ class TestOCRFallback:
 # 9. Expense ordering
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestExpenseOrdering:
     """GET /expenses must return rows in insertion order (ORDER BY id ASC)."""
 
     def test_insertion_order_preserved(self, client):
         headers = {"x-smartspend-guest-id": "guest-order-guest-001"}
         for vendor in ("Alpha", "Beta", "Gamma"):
-            client.post("/expenses", headers=headers, json={
-                "vendor": vendor, "total_amount": 1.0, "date": "2024-01-01",
-            })
+            client.post(
+                "/expenses",
+                headers=headers,
+                json={
+                    "vendor": vendor,
+                    "total_amount": 1.0,
+                    "date": "2024-01-01",
+                },
+            )
         r = client.get("/expenses", headers=headers)
         assert [e["vendor"] for e in r.json()] == ["Alpha", "Beta", "Gamma"]
 
     def test_newly_created_expense_appears_last(self, client):
         headers = {"x-smartspend-guest-id": "guest-order-guest-002"}
-        client.post("/expenses", headers=headers, json={
-            "vendor": "First", "total_amount": 1.0, "date": "2024-01-01",
-        })
-        client.post("/expenses", headers=headers, json={
-            "vendor": "Second", "total_amount": 1.0, "date": "2024-12-31",
-        })
+        client.post(
+            "/expenses",
+            headers=headers,
+            json={
+                "vendor": "First",
+                "total_amount": 1.0,
+                "date": "2024-01-01",
+            },
+        )
+        client.post(
+            "/expenses",
+            headers=headers,
+            json={
+                "vendor": "Second",
+                "total_amount": 1.0,
+                "date": "2024-12-31",
+            },
+        )
         expenses = client.get("/expenses", headers=headers).json()
         assert expenses[0]["vendor"] == "First"
         assert expenses[-1]["vendor"] == "Second"
@@ -601,14 +684,14 @@ class TestExpenseOrdering:
 # 10. Image-path deduplication
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestExpenseDeduplication:
     """POST /expenses with a duplicate image_path returns the existing row."""
 
     def test_same_image_path_returns_existing_expense(self, client):
         headers = {"x-smartspend-guest-id": "guest-dedup-guest-001"}
         image_path = f"dedup_{uuid.uuid4().hex}.jpg"
-        payload = {"vendor": "Original", "total_amount": 100.0, "date": "2024-01-01",
-                   "image_path": image_path}
+        payload = {"vendor": "Original", "total_amount": 100.0, "date": "2024-01-01", "image_path": image_path}
         r1 = client.post("/expenses", headers=headers, json=payload)
         r2 = client.post("/expenses", headers=headers, json={**payload, "vendor": "Duplicate"})
         assert r1.json()["id"] == r2.json()["id"]
@@ -616,14 +699,26 @@ class TestExpenseDeduplication:
 
     def test_different_image_paths_create_separate_rows(self, client):
         headers = {"x-smartspend-guest-id": "guest-dedup-guest-002"}
-        r1 = client.post("/expenses", headers=headers, json={
-            "vendor": "A", "total_amount": 1.0, "date": "2024-01-01",
-            "image_path": f"dedup_a_{uuid.uuid4().hex}.jpg",
-        })
-        r2 = client.post("/expenses", headers=headers, json={
-            "vendor": "B", "total_amount": 1.0, "date": "2024-01-01",
-            "image_path": f"dedup_b_{uuid.uuid4().hex}.jpg",
-        })
+        r1 = client.post(
+            "/expenses",
+            headers=headers,
+            json={
+                "vendor": "A",
+                "total_amount": 1.0,
+                "date": "2024-01-01",
+                "image_path": f"dedup_a_{uuid.uuid4().hex}.jpg",
+            },
+        )
+        r2 = client.post(
+            "/expenses",
+            headers=headers,
+            json={
+                "vendor": "B",
+                "total_amount": 1.0,
+                "date": "2024-01-01",
+                "image_path": f"dedup_b_{uuid.uuid4().hex}.jpg",
+            },
+        )
         assert r1.json()["id"] != r2.json()["id"]
 
     def test_no_image_path_allows_multiple_identical_expenses(self, client):
@@ -634,10 +729,10 @@ class TestExpenseDeduplication:
         assert r1.json()["id"] != r2.json()["id"]
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. Optional expense fields
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestExpenseFields:
     """The full set of optional FX / receipt fields roundtrips cleanly."""
@@ -645,12 +740,21 @@ class TestExpenseFields:
     HEADERS = {"x-smartspend-guest-id": "guest-fields-guest-001"}
 
     def test_fx_fields_stored_and_retrieved(self, client):
-        r = client.post("/expenses", headers=self.HEADERS, json={
-            "vendor": "FX Receipt", "total_amount": 1500.0, "date": "2024-03-01",
-            "currency": "INR", "source_currency": "USD", "raw_total_amount": 18.0,
-            "receipt_date": "2024-03-01", "fx_rate_date": "2024-03-01",
-            "currency_warning": "Converted from USD at 83.33",
-        })
+        r = client.post(
+            "/expenses",
+            headers=self.HEADERS,
+            json={
+                "vendor": "FX Receipt",
+                "total_amount": 1500.0,
+                "date": "2024-03-01",
+                "currency": "INR",
+                "source_currency": "USD",
+                "raw_total_amount": 18.0,
+                "receipt_date": "2024-03-01",
+                "fx_rate_date": "2024-03-01",
+                "currency_warning": "Converted from USD at 83.33",
+            },
+        )
         body = r.json()
         assert body["source_currency"] == "USD"
         assert body["raw_total_amount"] == 18.0
@@ -658,36 +762,63 @@ class TestExpenseFields:
         assert body["currency_warning"] == "Converted from USD at 83.33"
 
     def test_currency_warning_cleared_via_put(self, client):
-        r1 = client.post("/expenses", headers=self.HEADERS, json={
-            "vendor": "Warn", "total_amount": 100.0, "date": "2024-01-01",
-            "currency_warning": "Needs review",
-        })
-        r2 = client.put(f"/expenses/{r1.json()['id']}", headers=self.HEADERS,
-                        json={"currency_warning": None})
+        r1 = client.post(
+            "/expenses",
+            headers=self.HEADERS,
+            json={
+                "vendor": "Warn",
+                "total_amount": 100.0,
+                "date": "2024-01-01",
+                "currency_warning": "Needs review",
+            },
+        )
+        r2 = client.put(f"/expenses/{r1.json()['id']}", headers=self.HEADERS, json={"currency_warning": None})
         assert r2.json()["currency_warning"] is None
 
     def test_expense_without_items_returns_empty_list(self, client):
-        r = client.post("/expenses", headers=self.HEADERS, json={
-            "vendor": "No Items", "total_amount": 50.0, "date": "2024-01-01",
-        })
+        r = client.post(
+            "/expenses",
+            headers=self.HEADERS,
+            json={
+                "vendor": "No Items",
+                "total_amount": 50.0,
+                "date": "2024-01-01",
+            },
+        )
         assert r.json()["items"] == []
 
     def test_items_cleared_via_put(self, client):
-        r1 = client.post("/expenses", headers=self.HEADERS, json={
-            "vendor": "Has Items", "total_amount": 50.0, "date": "2024-01-01",
-            "items": [{"name": "Widget", "amount": 50.0}],
-        })
+        r1 = client.post(
+            "/expenses",
+            headers=self.HEADERS,
+            json={
+                "vendor": "Has Items",
+                "total_amount": 50.0,
+                "date": "2024-01-01",
+                "items": [{"name": "Widget", "amount": 50.0}],
+            },
+        )
         r2 = client.put(f"/expenses/{r1.json()['id']}", headers=self.HEADERS, json={"items": []})
         assert r2.json()["items"] == []
 
     def test_items_replaced_via_put(self, client):
-        r1 = client.post("/expenses", headers=self.HEADERS, json={
-            "vendor": "Replace", "total_amount": 50.0, "date": "2024-01-01",
-            "items": [{"name": "Old", "amount": 50.0}],
-        })
-        r2 = client.put(f"/expenses/{r1.json()['id']}", headers=self.HEADERS, json={
-            "items": [{"name": "New A", "amount": 20.0}, {"name": "New B", "amount": 30.0}],
-        })
+        r1 = client.post(
+            "/expenses",
+            headers=self.HEADERS,
+            json={
+                "vendor": "Replace",
+                "total_amount": 50.0,
+                "date": "2024-01-01",
+                "items": [{"name": "Old", "amount": 50.0}],
+            },
+        )
+        r2 = client.put(
+            f"/expenses/{r1.json()['id']}",
+            headers=self.HEADERS,
+            json={
+                "items": [{"name": "New A", "amount": 20.0}, {"name": "New B", "amount": 30.0}],
+            },
+        )
         names = [i["name"] for i in r2.json()["items"]]
         assert names == ["New A", "New B"]
 
@@ -696,8 +827,8 @@ class TestExpenseFields:
 # 12. Account settings — edge cases
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestAccountSettingsEdgeCases:
 
+class TestAccountSettingsEdgeCases:
     def test_partial_updates_do_not_reset_other_fields(self, client):
         headers = {"x-smartspend-guest-id": "guest-settings-acc-001"}
         client.put("/account-settings", headers=headers, json={"currency": "USD"})
@@ -714,9 +845,13 @@ class TestAccountSettingsEdgeCases:
 
     def test_blank_strings_in_categories_are_filtered(self, client):
         headers = {"x-smartspend-guest-id": "guest-settings-acc-003"}
-        r = client.put("/account-settings", headers=headers, json={
-            "custom_categories": ["Valid", "  ", "", "Also Valid"],
-        })
+        r = client.put(
+            "/account-settings",
+            headers=headers,
+            json={
+                "custom_categories": ["Valid", "  ", "", "Also Valid"],
+            },
+        )
         cats = r.json()["custom_categories"]
         assert "" not in cats and "  " not in cats
         assert "Valid" in cats and "Also Valid" in cats
@@ -729,9 +864,14 @@ class TestAccountSettingsEdgeCases:
 
     def test_display_name_and_email_roundtrip(self, client):
         headers = {"x-smartspend-guest-id": "guest-settings-acc-005"}
-        r = client.put("/account-settings", headers=headers, json={
-            "display_name": "Kanishk", "email": "kanishk@example.com",
-        })
+        r = client.put(
+            "/account-settings",
+            headers=headers,
+            json={
+                "display_name": "Kanishk",
+                "email": "kanishk@example.com",
+            },
+        )
         assert r.json()["display_name"] == "Kanishk"
         assert r.json()["email"] == "kanishk@example.com"
 
@@ -739,6 +879,7 @@ class TestAccountSettingsEdgeCases:
 # ─────────────────────────────────────────────────────────────────────────────
 # 13. FX rate cache
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestFXRateCache:
     """Unit tests for OCRProcessor.get_historical_rate — no real HTTP calls."""
@@ -748,8 +889,11 @@ class TestFXRateCache:
         from unittest.mock import MagicMock, patch
 
         from ocr_utils import OCRProcessor
-        with patch("ocr_utils.GeminiExtractor", return_value=MagicMock()), \
-             patch("ocr_utils._try_build_zai_extractor", return_value=None):
+
+        with (
+            patch("ocr_utils.GeminiExtractor", return_value=MagicMock()),
+            patch("ocr_utils._try_build_zai_extractor", return_value=None),
+        ):
             return OCRProcessor()
 
     def test_same_currency_returns_rate_of_one(self):
@@ -763,9 +907,9 @@ class TestFXRateCache:
     def test_failed_lookup_is_not_cached(self):
         import urllib.error
         from unittest.mock import patch
+
         proc = self._make_processor()
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("network down")):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("network down")):
             rate, _, _ = proc.get_historical_rate("USD", "INR", "2024-06-01")
         assert rate is None
         assert ("USD", "INR", "2024-06-01") not in proc._fx_cache
@@ -778,6 +922,7 @@ class TestFXRateCache:
 
     def test_cache_hit_skips_urlopen(self):
         from unittest.mock import patch
+
         proc = self._make_processor()
         proc._fx_cache[("GBP", "INR", "2024-01-01")] = (107.0, "2024-01-01")
         with patch("urllib.request.urlopen") as mock_open:
@@ -790,6 +935,7 @@ class TestFXRateCache:
 # 14. Guest account migration
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestGuestMigration:
     """Tests for POST /account-migrate-guest.
 
@@ -800,10 +946,10 @@ class TestGuestMigration:
     @staticmethod
     def _auth(user_id: str):
         from unittest.mock import patch
+
         return patch(
             "deps._resolve_identity",
-            return_value=(user_id, "auth", {"id": user_id, "email": f"{user_id}@test.com",
-                                            "user_metadata": {}}),
+            return_value=(user_id, "auth", {"id": user_id, "email": f"{user_id}@test.com", "user_metadata": {}}),
         )
 
     def test_requires_auth_identity(self, client):
@@ -812,10 +958,9 @@ class TestGuestMigration:
         # the x-smartspend-guest-id header so we bypass the same-id 400 and
         # hit the identity_type != "auth" guard that produces 401.
         from unittest.mock import patch
-        with patch("deps._resolve_identity",
-                   return_value=("some-different-user", "guest", None)):
-            r = client.post("/account-migrate-guest",
-                            headers={"x-smartspend-guest-id": "guest-some-guest"})
+
+        with patch("deps._resolve_identity", return_value=("some-different-user", "guest", None)):
+            r = client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": "guest-some-guest"})
         assert r.status_code == 401
 
     def test_requires_guest_id_header(self, client):
@@ -829,8 +974,7 @@ class TestGuestMigration:
         # same-id guard we're actually exercising here.
         same_id = f"guest-same-{uuid.uuid4().hex}"
         with self._auth(same_id):
-            r = client.post("/account-migrate-guest",
-                            headers={"x-smartspend-guest-id": same_id})
+            r = client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": same_id})
         assert r.status_code == 400
 
     def test_expenses_transferred_to_auth_user(self, client):
@@ -839,14 +983,18 @@ class TestGuestMigration:
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
         for i in range(3):
-            client.post("/expenses", headers=guest_headers, json={
-                "vendor": f"Guest Shop {i}", "total_amount": float(i + 1) * 100,
-                "date": "2024-01-01",
-            })
+            client.post(
+                "/expenses",
+                headers=guest_headers,
+                json={
+                    "vendor": f"Guest Shop {i}",
+                    "total_amount": float(i + 1) * 100,
+                    "date": "2024-01-01",
+                },
+            )
 
         with self._auth(auth_id):
-            assert client.post("/account-migrate-guest",
-                               headers={"x-smartspend-guest-id": guest_id}).status_code == 200
+            assert client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": guest_id}).status_code == 200
             vendors = [e["vendor"] for e in client.get("/expenses").json()]
 
         assert all(f"Guest Shop {i}" in vendors for i in range(3))
@@ -856,9 +1004,15 @@ class TestGuestMigration:
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
-        client.post("/expenses", headers=guest_headers, json={
-            "vendor": "Migrated", "total_amount": 100.0, "date": "2024-01-01",
-        })
+        client.post(
+            "/expenses",
+            headers=guest_headers,
+            json={
+                "vendor": "Migrated",
+                "total_amount": 100.0,
+                "date": "2024-01-01",
+            },
+        )
         with self._auth(auth_id):
             client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": guest_id})
 
@@ -869,12 +1023,12 @@ class TestGuestMigration:
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
-        client.put("/account-settings", headers=guest_headers,
-                   json={"currency": "JPY", "display_name": "Pre-login User"})
+        client.put(
+            "/account-settings", headers=guest_headers, json={"currency": "JPY", "display_name": "Pre-login User"}
+        )
 
         with self._auth(auth_id):
-            body = client.post("/account-migrate-guest",
-                               headers={"x-smartspend-guest-id": guest_id}).json()
+            body = client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": guest_id}).json()
 
         assert body["currency"] == "JPY"
         assert body["display_name"] == "Pre-login User"
@@ -888,8 +1042,7 @@ class TestGuestMigration:
 
         with self._auth(auth_id):
             client.put("/account-settings", json={"currency": "GBP", "display_name": "Auth User"})
-            body = client.post("/account-migrate-guest",
-                               headers={"x-smartspend-guest-id": guest_id}).json()
+            body = client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": guest_id}).json()
 
         assert body["currency"] == "GBP"
         assert body["display_name"] == "Auth User"
@@ -899,13 +1052,18 @@ class TestGuestMigration:
         auth_id = f"mg-auth-{uuid.uuid4().hex}"
         guest_headers = {"x-smartspend-guest-id": guest_id}
 
-        client.post("/expenses", headers=guest_headers, json={
-            "vendor": "Settings-free Shop", "total_amount": 50.0, "date": "2024-01-01",
-        })
+        client.post(
+            "/expenses",
+            headers=guest_headers,
+            json={
+                "vendor": "Settings-free Shop",
+                "total_amount": 50.0,
+                "date": "2024-01-01",
+            },
+        )
 
         with self._auth(auth_id):
-            assert client.post("/account-migrate-guest",
-                               headers={"x-smartspend-guest-id": guest_id}).status_code == 200
+            assert client.post("/account-migrate-guest", headers={"x-smartspend-guest-id": guest_id}).status_code == 200
             vendors = [e["vendor"] for e in client.get("/expenses").json()]
 
         assert "Settings-free Shop" in vendors
@@ -915,25 +1073,34 @@ class TestGuestMigration:
 # 15. Reconvert existing expenses to preferred currency
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestReconvert:
     """POST /expenses/reconvert — reconverts the caller's rows into their
     preferred currency using historical FX. FX is mocked so no network runs."""
 
     def test_reconverts_inr_receipt_to_usd(self, client):
         from unittest.mock import patch
+
         h = {"x-smartspend-guest-id": "guest-recon-usd"}
         # An INR receipt captured natively (no raw_total_amount).
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "Chai Point", "total_amount": 830.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
-            "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
-        }).json()["id"]
+        eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "Chai Point",
+                "total_amount": 830.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+                "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
+            },
+        ).json()["id"]
         # Prefer USD.
         client.put("/account-settings", headers=h, json={"currency": "USD"})
 
         # 1 INR = 0.012 USD  → 830 * 0.012 = 9.96
-        with patch.object(deps.ocr_engine, "get_historical_rate",
-                          return_value=(0.012, "2024-05-01", None)):
+        with patch.object(deps.ocr_engine, "get_historical_rate", return_value=(0.012, "2024-05-01", None)):
             r = client.post("/expenses/reconvert", headers=h)
         assert r.status_code == 200
         body = r.json()
@@ -952,17 +1119,25 @@ class TestReconvert:
         """A row already converted (USD source, INR base) reconverts from the
         raw source amount, not the derived base amount."""
         from unittest.mock import patch
+
         h = {"x-smartspend-guest-id": "guest-recon-raw"}
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "US Store", "total_amount": 1660.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "USD",
-            "raw_total_amount": 20.0,
-        }).json()["id"]
+        eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "US Store",
+                "total_amount": 1660.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "USD",
+                "raw_total_amount": 20.0,
+            },
+        ).json()["id"]
         client.put("/account-settings", headers=h, json={"currency": "EUR"})
 
         # Convert from the USD source (20) at 0.9 EUR/USD → 18.0, not from 1660 INR.
-        with patch.object(deps.ocr_engine, "get_historical_rate",
-                          return_value=(0.9, "2024-05-01", None)) as m:
+        with patch.object(deps.ocr_engine, "get_historical_rate", return_value=(0.9, "2024-05-01", None)) as m:
             r = client.post("/expenses/reconvert", headers=h)
         assert r.json()["reconverted"] == 1
         # source currency passed to FX must be USD (the original source), not INR.
@@ -973,15 +1148,23 @@ class TestReconvert:
 
     def test_failed_reconvert_leaves_row_unchanged_with_warning(self, client):
         from unittest.mock import patch
+
         h = {"x-smartspend-guest-id": "guest-recon-fail"}
-        eid = client.post("/expenses", headers=h, json={
-            "vendor": "No Rate", "total_amount": 500.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
-        }).json()["id"]
+        eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "No Rate",
+                "total_amount": 500.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+            },
+        ).json()["id"]
         client.put("/account-settings", headers=h, json={"currency": "USD"})
 
-        with patch.object(deps.ocr_engine, "get_historical_rate",
-                          return_value=(None, None, "no rate")):
+        with patch.object(deps.ocr_engine, "get_historical_rate", return_value=(None, None, "no rate")):
             r = client.post("/expenses/reconvert", headers=h)
         assert r.json() == {"reconverted": 0, "failed": 1, "skipped": 0}
         row = next(e for e in client.get("/expenses", headers=h).json() if e["id"] == eid)
@@ -993,35 +1176,57 @@ class TestReconvert:
     def test_already_preferred_rows_are_skipped(self, client):
         h = {"x-smartspend-guest-id": "guest-recon-skip"}
         client.put("/account-settings", headers=h, json={"currency": "INR"})
-        client.post("/expenses", headers=h, json={
-            "vendor": "Local", "total_amount": 100.0, "date": "2024-05-01",
-            "currency": "INR", "source_currency": "INR",
-        })
+        client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "Local",
+                "total_amount": 100.0,
+                "date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+            },
+        )
         r = client.post("/expenses/reconvert", headers=h)
         assert r.json()["reconverted"] == 0
         assert r.json()["skipped"] == 1
 
     def test_reconvert_scoped_to_caller_only(self, client):
         from unittest.mock import patch
+
         owner = {"x-smartspend-guest-id": "guest-recon-owner"}
         other = {"x-smartspend-guest-id": "guest-recon-other"}
-        other_eid = client.post("/expenses", headers=other, json={
-            "vendor": "Other's", "total_amount": 700.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
-        }).json()["id"]
-        client.post("/expenses", headers=owner, json={
-            "vendor": "Mine", "total_amount": 830.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
-        })
+        other_eid = client.post(
+            "/expenses",
+            headers=other,
+            json={
+                "vendor": "Other's",
+                "total_amount": 700.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+            },
+        ).json()["id"]
+        client.post(
+            "/expenses",
+            headers=owner,
+            json={
+                "vendor": "Mine",
+                "total_amount": 830.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+            },
+        )
         client.put("/account-settings", headers=owner, json={"currency": "USD"})
 
-        with patch.object(deps.ocr_engine, "get_historical_rate",
-                          return_value=(0.012, "2024-05-01", None)):
+        with patch.object(deps.ocr_engine, "get_historical_rate", return_value=(0.012, "2024-05-01", None)):
             client.post("/expenses/reconvert", headers=owner)
 
         # Other user's row must be untouched.
-        other_row = next(e for e in client.get("/expenses", headers=other).json()
-                         if e["id"] == other_eid)
+        other_row = next(e for e in client.get("/expenses", headers=other).json() if e["id"] == other_eid)
         assert other_row["currency"] == "INR"
         assert other_row["total_amount"] == 700.0
 
@@ -1030,18 +1235,35 @@ class TestReconvert:
         the batch: it's counted failed with a warning, while a normal receipt in
         the same call still reconverts and is committed (no rollback)."""
         from unittest.mock import patch
+
         h = {"x-smartspend-guest-id": "guest-recon-undated"}
         # Undated row: extract_data stores the literal "Unknown" for date.
-        bad_eid = client.post("/expenses", headers=h, json={
-            "vendor": "Undated", "total_amount": 500.0, "date": "Unknown",
-            "receipt_date": None, "currency": "INR", "source_currency": "INR",
-        }).json()["id"]
+        bad_eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "Undated",
+                "total_amount": 500.0,
+                "date": "Unknown",
+                "receipt_date": None,
+                "currency": "INR",
+                "source_currency": "INR",
+            },
+        ).json()["id"]
         # Normal, convertible row.
-        good_eid = client.post("/expenses", headers=h, json={
-            "vendor": "Chai Point", "total_amount": 830.0, "date": "2024-05-01",
-            "receipt_date": "2024-05-01", "currency": "INR", "source_currency": "INR",
-            "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
-        }).json()["id"]
+        good_eid = client.post(
+            "/expenses",
+            headers=h,
+            json={
+                "vendor": "Chai Point",
+                "total_amount": 830.0,
+                "date": "2024-05-01",
+                "receipt_date": "2024-05-01",
+                "currency": "INR",
+                "source_currency": "INR",
+                "items": [{"name": "Chai", "amount": 830.0, "raw_amount": 830.0}],
+            },
+        ).json()["id"]
         client.put("/account-settings", headers=h, json={"currency": "USD"})
 
         # Mimic the real get_historical_rate contract: a None date (which the

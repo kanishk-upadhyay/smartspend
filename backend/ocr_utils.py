@@ -19,6 +19,7 @@ def _try_build_zai_extractor():
     starts with Gemini-only mode."""
     try:
         from zai_extractor import ZaiExtractor
+
         return ZaiExtractor()
     except RuntimeError as exc:
         logger.info("Z.AI fallback not configured: %s", exc)
@@ -44,10 +45,7 @@ class OCRProcessor:
             logger.info("OCR fallback: Z.AI model=%s", self._fallback.model)
 
         if not self._primary and not self._fallback:
-            raise RuntimeError(
-                "No OCR backend configured. "
-                "Set GEMINI_API_KEY (primary) and/or ZAI_API_KEY (fallback)."
-            )
+            raise RuntimeError("No OCR backend configured. Set GEMINI_API_KEY (primary) and/or ZAI_API_KEY (fallback).")
 
         # Only successful FX lookups are cached so a transient CDN failure
         # doesn't permanently poison the cache for a (currency, date) pair.
@@ -61,9 +59,7 @@ class OCRProcessor:
             except ReceiptExtractionError as exc:
                 if not self._fallback:
                     raise
-                logger.warning(
-                    "Gemini primary failed (%s) — retrying with Z.AI fallback.", exc
-                )
+                logger.warning("Gemini primary failed (%s) — retrying with Z.AI fallback.", exc)
                 return self._fallback.extract(image_path)
         return self._fallback.extract(image_path)  # type: ignore[union-attr]
 
@@ -106,7 +102,11 @@ class OCRProcessor:
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError):
                 continue
 
-        return None, None, f"Could not fetch historical FX rate for {source_currency} -> {target_currency} on or before {receipt_date_iso}."
+        return (
+            None,
+            None,
+            f"Could not fetch historical FX rate for {source_currency} -> {target_currency} on or before {receipt_date_iso}.",
+        )
 
     def extract_data(self, image_path, base_currency: str = DEFAULT_CURRENCY):
         receipt = self._extract(image_path)
@@ -147,13 +147,12 @@ class OCRProcessor:
         else:
             rate, fx_rate_date, warning = self.get_historical_rate(source_currency, target_currency, receipt_date_iso)
             if rate is None:
-                currency_warning = warning or f"Could not convert {source_currency} to {target_currency} using the receipt date."
+                currency_warning = (
+                    warning or f"Could not convert {source_currency} to {target_currency} using the receipt date."
+                )
                 total_amount = raw_total
                 primary_currency = source_currency
-                items = [
-                    {**i, "currency": source_currency, "source_currency": source_currency}
-                    for i in raw_items
-                ]
+                items = [{**i, "currency": source_currency, "source_currency": source_currency} for i in raw_items]
             else:
                 total_amount = raw_total * rate
                 items = [
@@ -171,14 +170,9 @@ class OCRProcessor:
             item_warning = "No item rows detected on this receipt."
         else:
             item_sum = sum(i["raw_amount"] for i in raw_items)
-            if (
-                item_sum > 0
-                and raw_total > 0
-                and abs(item_sum - raw_total) / max(raw_total, item_sum) > 0.10
-            ):
+            if item_sum > 0 and raw_total > 0 and abs(item_sum - raw_total) / max(raw_total, item_sum) > 0.10:
                 item_warning = (
-                    f"Line items sum to {item_sum:.2f} but receipt total is "
-                    f"{raw_total:.2f} — verify before saving."
+                    f"Line items sum to {item_sum:.2f} but receipt total is {raw_total:.2f} — verify before saving."
                 )
             else:
                 item_warning = None

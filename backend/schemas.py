@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, ConfigDict
 
 
@@ -22,10 +21,12 @@ class ExpenseBase(BaseModel):
     split_type: str | None = "equal"
     split_data: dict | None = None
 
+
 class ExpenseResponse(ExpenseBase):
     id: int
     owner_id: str | None = None
     model_config = ConfigDict(from_attributes=True)
+
 
 class ExpenseUpdate(BaseModel):
     vendor: str | None = None

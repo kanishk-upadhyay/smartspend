@@ -62,9 +62,7 @@ class ZaiExtractor:
         self.client = ZaiClient(api_key=api_key)
         self.model = os.environ.get("ZAI_MODEL", "glm-4.6v-flash")
         self.max_retries = int(os.environ.get("ZAI_MAX_RETRIES", "2"))
-        self.retry_backoff_seconds = float(
-            os.environ.get("ZAI_RETRY_BACKOFF_SECONDS", "1.5")
-        )
+        self.retry_backoff_seconds = float(os.environ.get("ZAI_RETRY_BACKOFF_SECONDS", "1.5"))
 
     def extract(self, image_path: str) -> ReceiptData:
         """Extract structured data from *image_path* and return a ReceiptData.
@@ -129,9 +127,7 @@ class ZaiExtractor:
                 while idx != -1:
                     try:
                         obj, _ = decoder.raw_decode(cleaned[idx:])
-                        if isinstance(obj, dict) and (
-                            "vendor" in obj or "total_amount" in obj or "items" in obj
-                        ):
+                        if isinstance(obj, dict) and ("vendor" in obj or "total_amount" in obj or "items" in obj):
                             payload = obj
                             break
                     except json.JSONDecodeError:
@@ -139,16 +135,12 @@ class ZaiExtractor:
                     idx = cleaned.find("{", idx + 1)
 
                 if payload is None:
-                    raise ReceiptExtractionError(
-                        "Z.AI returned non-JSON output. Check model response."
-                    )
+                    raise ReceiptExtractionError("Z.AI returned non-JSON output. Check model response.")
 
                 try:
                     return ReceiptData(**payload)
                 except (ValidationError, TypeError) as exc:
-                    raise ReceiptExtractionError(
-                        f"Z.AI response did not match the expected schema: {exc}"
-                    ) from exc
+                    raise ReceiptExtractionError(f"Z.AI response did not match the expected schema: {exc}") from exc
 
             except ReceiptExtractionError:
                 # Schema / parse errors — retry won't help if it's structural,
@@ -156,17 +148,12 @@ class ZaiExtractor:
                 raise
             except Exception as exc:
                 last_exc = exc
-                logger.warning(
-                    "Z.AI API error on attempt %s/%s: %s", attempt, attempts, exc
-                )
+                logger.warning("Z.AI API error on attempt %s/%s: %s", attempt, attempts, exc)
                 if attempt >= attempts:
                     raise ReceiptExtractionError(
-                        f"Z.AI OCR service error after {attempts} attempt(s). "
-                        "Check ZAI_API_KEY and network."
+                        f"Z.AI OCR service error after {attempts} attempt(s). Check ZAI_API_KEY and network."
                     ) from exc
 
             time.sleep(self.retry_backoff_seconds * attempt)
 
-        raise ReceiptExtractionError(
-            f"Z.AI OCR failed unexpectedly after retries. Last error: {last_exc}"
-        )
+        raise ReceiptExtractionError(f"Z.AI OCR failed unexpectedly after retries. Last error: {last_exc}")

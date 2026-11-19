@@ -45,6 +45,7 @@ def client():
 # 1. Space Creation Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestSpaceCreation:
     def test_create_space_unauthenticated_fails(self, client):
         r = client.post("/spaces", json={"name": "Trip to Goa"})
@@ -81,6 +82,7 @@ class TestSpaceCreation:
 # 2. Space Listing Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestSpaceListing:
     def test_list_spaces_returns_only_joined_spaces(self, client):
         # User A creates Space A
@@ -107,6 +109,7 @@ class TestSpaceListing:
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Space Joining Tests
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestSpaceJoining:
     def test_join_space_by_code(self, client):
@@ -167,6 +170,7 @@ class TestSpaceJoining:
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Space Expenses & Balance Calculations
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestSpaceExpensesAndSplits:
     def test_add_expense_to_space(self, client):
@@ -238,9 +242,17 @@ class TestSpaceExpensesAndSplits:
         client.post("/spaces/join", headers=USER_C, json={"code_or_slug": space["join_code"]})
 
         # User A pays ₹3,000 for villa
-        client.post(f"/spaces/{space['id']}/expenses", headers=USER_A, json={"vendor": "Villa", "total_amount": 3000.0, "date": "2026-11-15"})
+        client.post(
+            f"/spaces/{space['id']}/expenses",
+            headers=USER_A,
+            json={"vendor": "Villa", "total_amount": 3000.0, "date": "2026-11-15"},
+        )
         # User B pays ₹1,500 for drinks
-        client.post(f"/spaces/{space['id']}/expenses", headers=USER_B, json={"vendor": "Drinks", "total_amount": 1500.0, "date": "2026-11-15"})
+        client.post(
+            f"/spaces/{space['id']}/expenses",
+            headers=USER_B,
+            json={"vendor": "Drinks", "total_amount": 1500.0, "date": "2026-11-15"},
+        )
         # User C pays ₹0
 
         # Total = 4,500. Fair share per person (3 members) = 1,500
@@ -257,6 +269,7 @@ class TestSpaceExpensesAndSplits:
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Safe Deletion & Reference Counting (Pitfall 3)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestSafeDeletionAndReferenceCounting:
     def test_deleting_expense_does_not_delete_s3_if_another_references_it(self, client, monkeypatch):
@@ -326,6 +339,7 @@ class TestSafeDeletionAndReferenceCounting:
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Guest Migration for Spaces (Pitfall 1)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestGuestMigrationSpaces:
     def test_guest_migration_transfers_spaces_and_memberships(self, client, monkeypatch):
@@ -399,8 +413,16 @@ class TestGuestMigrationSpaces:
 
         # 2. Both auth user and guest have an expense referencing the same image_path
         dup_image = "receipts/dup_receipt_overlap.png"
-        client.post("/expenses", headers=auth_headers, json={"vendor": "Auth Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image})
-        client.post("/expenses", headers=guest_headers, json={"vendor": "Guest Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image})
+        client.post(
+            "/expenses",
+            headers=auth_headers,
+            json={"vendor": "Auth Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image},
+        )
+        client.post(
+            "/expenses",
+            headers=guest_headers,
+            json={"vendor": "Guest Vendor", "total_amount": 100.0, "date": "2026-11-15", "image_path": dup_image},
+        )
 
         # 3. Perform guest migration
         res = client.post("/account-migrate-guest", headers=auth_headers)
@@ -409,17 +431,19 @@ class TestGuestMigrationSpaces:
         # Verify only 1 membership exists for auth user in Common Space (no duplicate or crash)
         db = SessionLocal()
         try:
-            mems = db.query(SpaceMember).filter(
-                SpaceMember.space_id == shared_space["id"],
-                SpaceMember.member_id == "auth-user-overlap-101"
-            ).all()
+            mems = (
+                db.query(SpaceMember)
+                .filter(SpaceMember.space_id == shared_space["id"], SpaceMember.member_id == "auth-user-overlap-101")
+                .all()
+            )
             assert len(mems) == 1
 
             # Verify no constraint error on expenses
-            exps = db.query(Expense).filter(
-                Expense.owner_id == "auth-user-overlap-101",
-                Expense.image_path == dup_image
-            ).all()
+            exps = (
+                db.query(Expense)
+                .filter(Expense.owner_id == "auth-user-overlap-101", Expense.image_path == dup_image)
+                .all()
+            )
             assert len(exps) == 1
         finally:
             db.close()
@@ -457,10 +481,14 @@ class TestGuestMigrationSpaces:
             sp = db.query(Space).filter(Space.id == created_space["id"]).first()
             assert sp.created_by == "auth-user-promoted-creator"
 
-            mems = db.query(SpaceMember).filter(
-                SpaceMember.space_id == created_space["id"],
-                SpaceMember.member_id == "auth-user-promoted-creator",
-            ).all()
+            mems = (
+                db.query(SpaceMember)
+                .filter(
+                    SpaceMember.space_id == created_space["id"],
+                    SpaceMember.member_id == "auth-user-promoted-creator",
+                )
+                .all()
+            )
             assert len(mems) == 1
             assert mems[0].role == "creator"
         finally:
@@ -488,10 +516,18 @@ class TestGuestMigrationSpaces:
         dup_img = "receipts/shared_linkage_receipt.png"
 
         # Auth user has expense with dup_img in personal view (space_id is None)
-        client.post("/expenses", headers=auth_headers, json={"vendor": "Personal Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img})
+        client.post(
+            "/expenses",
+            headers=auth_headers,
+            json={"vendor": "Personal Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img},
+        )
 
         # Guest user adds expense with dup_img in space
-        client.post(f"/spaces/{shared_space['id']}/expenses", headers=guest_headers, json={"vendor": "Space Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img})
+        client.post(
+            f"/spaces/{shared_space['id']}/expenses",
+            headers=guest_headers,
+            json={"vendor": "Space Copy", "total_amount": 200.0, "date": "2026-11-15", "image_path": dup_img},
+        )
 
         # Migrate
         res = client.post("/account-migrate-guest", headers=auth_headers)
@@ -499,10 +535,14 @@ class TestGuestMigrationSpaces:
 
         db = SessionLocal()
         try:
-            exp = db.query(Expense).filter(
-                Expense.owner_id == "auth-user-link-test",
-                Expense.image_path == dup_img,
-            ).first()
+            exp = (
+                db.query(Expense)
+                .filter(
+                    Expense.owner_id == "auth-user-link-test",
+                    Expense.image_path == dup_img,
+                )
+                .first()
+            )
             assert exp is not None
             # Space linkage should be preserved
             assert exp.space_id == shared_space["id"]
@@ -533,6 +573,7 @@ class TestGuestMigrationSpaces:
     def test_space_members_unique_constraint_enforced_in_db(self):
         """Verify the database schema prevents duplicate (space_id, member_id) pairs."""
         from sqlalchemy.exc import IntegrityError
+
         db = SessionLocal()
         try:
             m1 = SpaceMember(space_id=9999, member_id="unique-test-user", display_name="Test 1")
@@ -550,6 +591,7 @@ class TestGuestMigrationSpaces:
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Analytics Scope Separation (Pitfall 4)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestAnalyticsScope:
     def test_personal_scope_excludes_space_expenses(self, client):

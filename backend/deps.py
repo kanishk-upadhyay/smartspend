@@ -59,6 +59,7 @@ def get_s3_client():
         )
     return _s3_client
 
+
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
@@ -110,7 +111,7 @@ def _normalize_image_path(stored: str | None) -> str | None:
     if S3_ENDPOINT_URL:
         prefix = f"{S3_ENDPOINT_URL}/{STORAGE_BUCKET}/"
         if stored.startswith(prefix):
-            return stored[len(prefix):]
+            return stored[len(prefix) :]
     return stored
 
 
@@ -135,7 +136,9 @@ def _attach_items(expense):
     except Exception:
         expense.items = []
     try:
-        expense.split_data = json.loads(expense.split_data_json or "{}") if getattr(expense, "split_data_json", None) else None
+        expense.split_data = (
+            json.loads(expense.split_data_json or "{}") if getattr(expense, "split_data_json", None) else None
+        )
     except Exception:
         expense.split_data = None
     expense.image_path = _displayable_image_path(expense.image_path)
@@ -286,4 +289,3 @@ def _delete_storage_object(image_path: str) -> None:
 
 
 _delete_supabase_object = _delete_storage_object
-

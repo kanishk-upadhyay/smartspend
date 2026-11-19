@@ -24,7 +24,9 @@ from main import app
 
 USER_1 = {"x-smartspend-guest-id": "guest-gap-user-1"}
 USER_2 = {"x-smartspend-guest-id": "guest-gap-user-2"}
-TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 TINY_PNG_B64 = base64.b64encode(TINY_PNG).decode("ascii")
 
 
@@ -59,6 +61,7 @@ def client():
 # ─────────────────────────────────────────────────────────────────────────────
 # Gaps in Cross-User Isolation & Security
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestSecurityGaps:
     def test_cannot_update_other_users_expense(self, client):
@@ -105,7 +108,12 @@ class TestSecurityGaps:
         r = client.post(
             "/expenses",
             headers=USER_1,
-            json={"vendor": "Bad Scheme", "total_amount": 10.0, "date": "2026-11-15", "image_path": "ftp://example.com/test.png"},
+            json={
+                "vendor": "Bad Scheme",
+                "total_amount": 10.0,
+                "date": "2026-11-15",
+                "image_path": "ftp://example.com/test.png",
+            },
         )
         assert r.status_code == 400
 
@@ -113,6 +121,7 @@ class TestSecurityGaps:
 # ─────────────────────────────────────────────────────────────────────────────
 # Gaps in Upload & S3 Storage Error Handling
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestUploadAndStorageGaps:
     def test_upload_corrupt_base64_returns_400(self, client):
@@ -163,6 +172,7 @@ class TestUploadAndStorageGaps:
         """_normalize_image_path extracts canonical object key from full S3 URL."""
         monkeypatch.setattr("deps.S3_ENDPOINT_URL", "https://s3.neon.tech")
         from deps import _normalize_image_path
+
         s3_url = f"https://s3.neon.tech/{deps.STORAGE_BUCKET}/receipts/my_scan_123.jpg"
         assert _normalize_image_path(s3_url) == "receipts/my_scan_123.jpg"
         assert _normalize_image_path("receipts/local.png") == "receipts/local.png"
@@ -172,6 +182,7 @@ class TestUploadAndStorageGaps:
 # ─────────────────────────────────────────────────────────────────────────────
 # Gaps in Rate Limiting & Currency Edge Cases
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestRateLimitingAndCurrencyGaps:
     def test_rate_limit_burst_protection(self, client, monkeypatch):

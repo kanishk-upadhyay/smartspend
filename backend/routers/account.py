@@ -100,9 +100,7 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
             # preserve the space linkage on the existing auth expense before removing the duplicate.
             if exp.space_id:
                 existing_exp = (
-                    db.query(Expense)
-                    .filter(Expense.owner_id == owner_id, Expense.image_path == exp.image_path)
-                    .first()
+                    db.query(Expense).filter(Expense.owner_id == owner_id, Expense.image_path == exp.image_path).first()
                 )
                 if existing_exp and existing_exp.space_id is None:
                     existing_exp.space_id = exp.space_id
@@ -116,12 +114,7 @@ def migrate_guest_account(request: Request, db: Session = Depends(get_db)):
 
     # Space memberships: if owner_id is already a member of a space that guest_id was in,
     # delete the guest membership to prevent UNIQUE constraint violation on (space_id, member_id).
-    existing_spaces = {
-        row[0]
-        for row in db.query(SpaceMember.space_id)
-        .filter(SpaceMember.member_id == owner_id)
-        .all()
-    }
+    existing_spaces = {row[0] for row in db.query(SpaceMember.space_id).filter(SpaceMember.member_id == owner_id).all()}
     guest_memberships = db.query(SpaceMember).filter(SpaceMember.member_id == guest_id).all()
     for gm in guest_memberships:
         if gm.space_id in existing_spaces:

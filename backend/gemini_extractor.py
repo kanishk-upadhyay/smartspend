@@ -116,10 +116,11 @@ class GeminiExtractor:
                         types.Part.from_bytes(data=image_bytes, mime_type=mime),
                         PROMPT,
                     ],
-                    config={
-                        "response_mime_type": "application/json",
-                        "response_schema": ReceiptData,
-                    },
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=ReceiptData,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                    ),
                 )
                 if response.parsed is None:
                     raise ReceiptExtractionError("OCR model returned an empty structured response.")

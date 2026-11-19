@@ -32,7 +32,7 @@ async def upload_receipt(request: Request, payload: UploadRequest, db: Session =
     _check_upload_rate(owner_id)
 
     settings = db.query(AccountSettings).filter(AccountSettings.owner_id == owner_id).first()
-    base_currency = (settings.currency if settings and settings.currency else "INR")
+    base_currency = settings.currency if settings and settings.currency else "INR"
 
     original_name = payload.filename or ""
     ext = os.path.splitext(original_name)[1].lower()
