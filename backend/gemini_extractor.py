@@ -28,15 +28,36 @@ Category = Literal[
 
 PROMPT = """Extract structured data from this receipt image.
 
-- vendor: merchant/store name shown on the receipt (usually near the top)
-- total_amount: final total paid, as a number in the receipt's currency
-- date: transaction date as ISO YYYY-MM-DD; empty string if unreadable
-- source_currency: ISO 4217 code (USD, INR, EUR, GBP, JPY, etc.). Use "MIXED" if more than one currency appears on the receipt.
-- detected_currencies: every ISO 4217 code seen on the receipt
-- items: each purchased line item with name and amount in source currency. Include qty if explicitly shown. Exclude tax, total, subtotal, discount, tip, and payment lines.
+- vendor: merchant/store/canteen name shown near the top of the receipt (e.g. "3108-MB Area Cobra Canteen"). Exclude generic document headings like "GROCERY BILL (ORIGINAL)" or "TAX INVOICE".
+- total_amount: final total paid, as a number in the receipt's currency. Pick the definitively-labeled total (Total, Grand Total, Net Amount, Amount Due, AMT PD), not subtotals or tax lines.
+- date: transaction date as ISO YYYY-MM-DD; empty string if unreadable. Note: on narrow thermal receipts, 4-digit years or dates may wrap across lines (e.g. "DT 18/11/202" followed by "6" means 2026-11-18; "DT 18-Nov-26" means 2026-11-18).
+- source_currency: ISO 4217 code (USD, INR, EUR, GBP, JPY, etc.). Indian receipts (Rs, Canteen, Jabalpur) use INR. Use "MIXED" if more than one currency appears on the receipt.
+- detected_currencies: every ISO 4217 code seen on the receipt.
+- items: each purchased line item with name, qty, and total line amount in source currency.
+  * TWO-LINE / STACKED RECEIPT TABLE FORMATS:
+    Many POS/canteen receipts print each item across two lines in one of two formats:
+
+    Format 1 (Quantity & Price ABOVE description):
+      Header: Index/ Qty Rate AMT Amount
+              Item Description TAX% +TAX
+      Line 1: 050511K  2  544.56  0.00  1089.12  <-- Qty, Unit Rate, and Line Amount are on this line!
+      Line 2: FOOTBALL NIVIA  0.00%              <-- Description is on this line!
+      -> Name: "FOOTBALL NIVIA", Qty: 2, Amount: 1089.12
+
+    Format 2 (Description on Line 1, Total Amount on Line 2):
+      Header: Index  Item description  Qty Rate+TA
+              X      Amount
+      Line 1: 001024A  BLADE 7 O CLOCK PLAT  8  25.94  <-- Description, Qty (8), Unit Rate (25.94)
+      Line 2: 207.52                                    <-- Line Total Amount (8 * 25.94 = 207.52)
+      -> Name: "BLADE 7 O CLOCK PLAT", Qty: 8, Amount: 207.52
+
+  * CRITICAL RULES FOR ALL ITEMS:
+    1. 'name': Always extract the human-readable product name (e.g. "POLISH CHERRY BLOSSOM BL", "FOOTBALL NIVIA"). NEVER use alphanumeric index/item codes (like "028015T", "050511K") as the name.
+    2. 'qty': Extract the item count if shown (e.g. 8 for blades, 2 for football).
+    3. 'amount': ALWAYS extract the final EXTENDED line amount (Qty * Unit Rate), NEVER the unit rate or tax amount. For example, 8 blades at 25.94 has line amount 207.52 — 'amount' MUST be 207.52, NOT 25.94.
 - category: classify the receipt as one of:
     Food (restaurants, cafes, food delivery, coffee shops)
-    Groceries (supermarkets, grocery stores, produce, household staples)
+    Groceries (supermarkets, canteens, grocery stores, produce, household staples)
     Transport (taxi, ride-share, fuel, public transit, flights, parking)
     Travel (hotels, lodging, vacation rentals, travel insurance)
     Shopping (clothing, electronics, home goods, retail)
@@ -45,9 +66,7 @@ PROMPT = """Extract structured data from this receipt image.
     Entertainment (movies, concerts, events, games, books)
     Education (tuition, courses, training, school supplies)
     General (anything that doesn't clearly fit above)
-  Use General when uncertain. Pick exactly one.
-
-Pick the definitively-labeled total (Total, Grand Total, Amount Due), not subtotals."""
+  Use General when uncertain. Pick exactly one."""
 
 
 class ReceiptItem(BaseModel):

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _SCHEMA_SUFFIX = """
 
 Return ONLY a single valid JSON object — no markdown fences, no explanation, \
-no trailing text. The object MUST match this schema exactly:
+no trailing text, no thinking tags. The object MUST match this schema exactly:
 {
   "vendor": "<string>",
   "total_amount": <number>,
@@ -40,8 +40,8 @@ no trailing text. The object MUST match this schema exactly:
   "detected_currencies": ["<ISO 4217 code>", ...],
   "items": [
     {
-      "name": "<string>",
-      "amount": <number>,
+      "name": "<string - human readable product name, NOT index code>",
+      "amount": <number - final line total, NOT unit rate or tax>,
       "qty": <number or null>
     }
   ],
@@ -115,12 +115,33 @@ class ZaiExtractor:
                         "The request may have been filtered or rate-limited."
                     )
                 raw_content = response.choices[0].message.content or ""
-                try:
-                    payload = json.loads(raw_content)
-                except json.JSONDecodeError as exc:
+                cleaned = raw_content
+                if "</think>" in cleaned:
+                    cleaned = cleaned.split("</think>")[-1].strip()
+                if "```json" in cleaned:
+                    cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
+                elif "```" in cleaned:
+                    cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+
+                decoder = json.JSONDecoder()
+                idx = cleaned.find("{")
+                payload = None
+                while idx != -1:
+                    try:
+                        obj, _ = decoder.raw_decode(cleaned[idx:])
+                        if isinstance(obj, dict) and (
+                            "vendor" in obj or "total_amount" in obj or "items" in obj
+                        ):
+                            payload = obj
+                            break
+                    except json.JSONDecodeError:
+                        pass
+                    idx = cleaned.find("{", idx + 1)
+
+                if payload is None:
                     raise ReceiptExtractionError(
                         "Z.AI returned non-JSON output. Check model response."
-                    ) from exc
+                    )
 
                 try:
                     return ReceiptData(**payload)
